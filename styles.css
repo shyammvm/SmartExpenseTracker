@@ -7,7 +7,12 @@
   --stamp-dark: #163f36;
   --debit: #9c3b2e;
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -30,6 +35,7 @@ body {
   gap: 4px;
   margin-bottom: 14px;
 }
+
 .nav a {
   font-family: 'Space Mono', monospace;
   font-size: 11px;
@@ -42,6 +48,7 @@ body {
   border: 1.5px solid var(--paper-line);
   opacity: 0.75;
 }
+
 .nav a.active {
   color: var(--paper);
   background: var(--stamp);
@@ -55,15 +62,18 @@ body {
   width: 100%;
   max-width: 400px;
   background: var(--paper);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
   padding: 28px 22px 34px;
   position: relative;
   margin-bottom: 16px;
 }
+
 .receipt::after {
   content: "";
   position: absolute;
-  left: 0; right: 0; bottom: -14px;
+  left: 0;
+  right: 0;
+  bottom: -14px;
   height: 14px;
   background:
     linear-gradient(-45deg, var(--paper) 8px, transparent 0),
@@ -71,13 +81,19 @@ body {
   background-size: 16px 16px;
   background-repeat: repeat-x;
 }
-header { text-align: center; margin-bottom: 18px; }
+
+header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
 .eyebrow {
   font-size: 11px;
   letter-spacing: 3px;
   color: var(--ink-faint);
   margin-bottom: 4px;
 }
+
 h1 {
   font-family: 'Big Shoulders Text', sans-serif;
   font-weight: 800;
@@ -86,12 +102,17 @@ h1 {
   margin: 0;
   text-transform: uppercase;
 }
+
 .divider {
   border: none;
   border-top: 2px dashed var(--paper-line);
   margin: 18px 0;
 }
-.field { margin-bottom: 20px; }
+
+.field {
+  margin-bottom: 20px;
+}
+
 label {
   display: block;
   font-size: 11px;
@@ -108,11 +129,13 @@ label {
   border-bottom: 2px solid var(--ink);
   padding-bottom: 6px;
 }
+
 .amount-row span {
   font-size: 26px;
   font-weight: 700;
   margin-right: 6px;
 }
+
 #amount {
   flex: 1;
   border: none;
@@ -125,7 +148,10 @@ label {
   outline: none;
   min-width: 0;
 }
-#amount::placeholder { color: #c9c2a8; }
+
+#amount::placeholder {
+  color: #c9c2a8;
+}
 
 /* ---- Chips ---- */
 .chips {
@@ -133,6 +159,7 @@ label {
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
+
 .chip {
   border: 1.5px solid var(--ink);
   background: transparent;
@@ -144,16 +171,23 @@ label {
   text-align: left;
   letter-spacing: 0.3px;
 }
+
 .chip.selected {
   background: var(--stamp);
   border-color: var(--stamp);
   color: var(--paper);
   font-weight: 700;
 }
-.chip:disabled { opacity: 0.35; cursor: default; }
+
+.chip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 
 /* ---- Text/date inputs ---- */
-input[type=text], input[type=date], select {
+input[type=text],
+input[type=date],
+select {
   width: 100%;
   border: none;
   border-bottom: 1.5px solid var(--paper-line);
@@ -164,10 +198,19 @@ input[type=text], input[type=date], select {
   color: var(--ink);
   outline: none;
 }
-input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-color: var(--ink); }
+
+input[type=text]:focus,
+input[type=date]:focus,
+select:focus {
+  border-bottom-color: var(--ink);
+}
 
 /* ---- Stamp button ---- */
-.submit-wrap { text-align: center; margin-top: 26px; }
+.submit-wrap {
+  text-align: center;
+  margin-top: 26px;
+}
+
 #submitBtn {
   font-family: 'Big Shoulders Text', sans-serif;
   font-weight: 800;
@@ -184,9 +227,20 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
-#submitBtn:active { transform: rotate(-6deg) scale(0.94); }
-#submitBtn.stamped { background: var(--stamp); color: var(--paper); }
-#submitBtn:disabled { opacity: 0.4; cursor: default; }
+
+#submitBtn:active {
+  transform: rotate(-6deg) scale(0.94);
+}
+
+#submitBtn.stamped {
+  background: var(--stamp);
+  color: var(--paper);
+}
+
+#submitBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 .status {
   text-align: center;
@@ -195,10 +249,16 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   margin-top: 12px;
   min-height: 16px;
 }
-.status.error { color: var(--debit); }
+
+.status.error {
+  color: var(--debit);
+}
 
 /* ---- Today's tape ---- */
-.tape { margin-top: 30px; }
+.tape {
+  margin-top: 30px;
+}
+
 .tape-title {
   font-size: 11px;
   letter-spacing: 2px;
@@ -206,6 +266,7 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   text-transform: uppercase;
   margin-bottom: 10px;
 }
+
 .tape-row {
   display: flex;
   justify-content: space-between;
@@ -214,11 +275,23 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   border-bottom: 1px dotted var(--paper-line);
   animation: printIn 0.25s ease;
 }
-.tape-row .cat { color: var(--ink-faint); }
-@keyframes printIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+
+.tape-row .cat {
+  color: var(--ink-faint);
 }
+
+@keyframes printIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .tape-total {
   display: flex;
   justify-content: space-between;
@@ -235,10 +308,12 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+
 .stat-card {
   border: 1.5px solid var(--paper-line);
   padding: 10px 12px;
 }
+
 .stat-card .label {
   font-size: 10px;
   letter-spacing: 1.5px;
@@ -246,33 +321,48 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   text-transform: uppercase;
   margin-bottom: 4px;
 }
+
 .stat-card .value {
   font-size: 20px;
   font-weight: 700;
   font-family: 'Space Mono', monospace;
 }
-.stat-card.wide { grid-column: 1 / -1; }
+
+.stat-card.wide {
+  grid-column: 1 / -1;
+}
 
 /* ---- Category bars (dashboard) ---- */
-.bar-row { margin-bottom: 14px; }
+.bar-row {
+  margin-bottom: 14px;
+}
+
 .bar-row .bar-label {
   display: flex;
   justify-content: space-between;
   font-size: 12.5px;
   margin-bottom: 5px;
 }
-.bar-row .bar-label .amt { font-weight: 700; }
+
+.bar-row .bar-label .amt {
+  font-weight: 700;
+}
+
 .bar-track {
   height: 8px;
   background: var(--paper-line);
   position: relative;
   overflow: hidden;
 }
+
 .bar-fill {
   height: 100%;
   background: var(--stamp);
 }
-.bar-fill.fixed { background: var(--ink-faint); }
+
+.bar-fill.fixed {
+  background: var(--ink-faint);
+}
 
 /* ---- Category management table ---- */
 .cat-row {
@@ -284,18 +374,29 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   border-bottom: 1px dotted var(--paper-line);
   font-size: 13px;
 }
-.cat-row select { font-size: 12px; padding: 4px; }
+
+.cat-row select {
+  font-size: 12px;
+  padding: 4px;
+}
+
 .cat-row .toggle {
   width: 20px;
   height: 20px;
   cursor: pointer;
 }
+
 .add-cat-form {
   display: flex;
   gap: 6px;
   margin-top: 16px;
 }
-.add-cat-form input[type=text] { border: 1.5px solid var(--paper-line); padding: 8px; }
+
+.add-cat-form input[type=text] {
+  border: 1.5px solid var(--paper-line);
+  padding: 8px;
+}
+
 .add-cat-form button {
   font-family: 'Space Mono', monospace;
   font-weight: 700;
@@ -332,18 +433,21 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   border: 1.5px solid var(--paper-line);
   padding: 14px;
   margin-bottom: 16px;
-  background: rgba(255,255,255,0.45);
+  background: rgba(255, 255, 255, 0.45);
 }
+
 .conflict-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 6px;
 }
+
 .conflict-header .amt {
   font-size: 18px;
   font-weight: 700;
 }
+
 .reason-badge {
   display: inline-block;
   background: #f4dcd6;
@@ -354,6 +458,7 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   margin-bottom: 8px;
   font-weight: 700;
 }
+
 .raw-text-box {
   background: #e4dec8;
   padding: 8px;
@@ -364,12 +469,17 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   word-break: break-word;
   line-height: 1.4;
 }
+
 .conflict-actions {
   display: flex;
   gap: 6px;
   margin-top: 10px;
 }
-.btn-approve, .btn-edit, .btn-deny, .btn-save {
+
+.btn-approve,
+.btn-edit,
+.btn-deny,
+.btn-save {
   font-family: 'Space Mono', monospace;
   font-size: 11px;
   padding: 7px 10px;
@@ -378,10 +488,28 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   font-weight: 700;
   text-transform: uppercase;
 }
-.btn-approve { background: var(--stamp); color: var(--paper); }
-.btn-edit { background: #5a758d; color: #fff; }
-.btn-deny { background: var(--debit); color: #fff; }
-.btn-save { background: var(--stamp); color: var(--paper); width: 100%; margin-top: 10px; }
+
+.btn-approve {
+  background: var(--stamp);
+  color: var(--paper);
+}
+
+.btn-edit {
+  background: #5a758d;
+  color: #fff;
+}
+
+.btn-deny {
+  background: var(--debit);
+  color: #fff;
+}
+
+.btn-save {
+  background: var(--stamp);
+  color: var(--paper);
+  width: 100%;
+  margin-top: 10px;
+}
 
 .edit-panel {
   margin-top: 12px;
