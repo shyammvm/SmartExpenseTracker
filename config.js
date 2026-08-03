@@ -19,15 +19,17 @@ function showPasscodeModal(errorMsg = "") {
   overlay.id = "passcodeOverlay";
   overlay.innerHTML = `
     <div class="passcode-card">
-      <div class="eyebrow">SECURITY LOCK</div>
-      <h1 style="font-size:22px;margin-top:4px;">App Passcode</h1>
-      <p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Enter your secret key to access your ledger</p>
+      <header style="text-align:center;margin-bottom:8px;">
+        <div class="eyebrow">SECURITY LOCK</div>
+        <h1>App Passcode</h1>
+      </header>
+      <div style="font-size:11px;color:var(--ink-faint);letter-spacing:1.5px;text-transform:uppercase;">Enter key to access your ledger</div>
       <input type="password" id="passcodeInput" placeholder="••••••••" autofocus autocomplete="current-password">
       <button type="button" id="passcodeBtn">Unlock Ledger</button>
       <div class="passcode-error" id="passcodeError">${errorMsg}</div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  document.body.prepend(overlay);
 
   const input = document.getElementById("passcodeInput");
   const btn = document.getElementById("passcodeBtn");

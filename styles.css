@@ -429,6 +429,19 @@ select:focus {
 }
 
 /* ---- Conflict Item Cards ---- */
+.passcode-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(35, 36, 31, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 9999;
+  padding: calc(env(safe-area-inset-top, 0px) + 30px) 16px 16px;
+}
+
 .conflict-card {
   border: 1.5px solid var(--paper-line);
   padding: 14px;
@@ -516,4 +529,74 @@ select:focus {
   padding-top: 12px;
   border-top: 1px dashed var(--paper-line);
   display: none;
+}
+
+/* ---- Passcode Lock Modal (Receipt Style) ---- */
+.passcode-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--paper);
+  padding: 28px 22px 34px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  text-align: center;
+  position: relative;
+  margin-bottom: 16px;
+}
+.passcode-card::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -14px;
+  height: 14px;
+  background:
+    linear-gradient(-45deg, var(--paper) 8px, transparent 0),
+    linear-gradient(45deg, var(--paper) 8px, transparent 0);
+  background-size: 16px 16px;
+  background-repeat: repeat-x;
+}
+.passcode-card h1 {
+  font-family: 'Big Shoulders Text', sans-serif;
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: 1px;
+  margin: 4px 0 0;
+  text-transform: uppercase;
+}
+.passcode-card input[type=password], .passcode-card input[type=text] {
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid var(--ink);
+  background: transparent;
+  font-family: 'Space Mono', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 10px 4px;
+  text-align: center;
+  letter-spacing: 4px;
+  color: var(--ink);
+  outline: none;
+  margin: 20px 0 16px;
+}
+.passcode-card button {
+  font-family: 'Big Shoulders Text', sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: var(--stamp);
+  color: var(--paper);
+  border: 2px solid var(--stamp);
+  padding: 12px 24px;
+  width: 100%;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.passcode-card button:active {
+  transform: scale(0.97);
+}
+.passcode-error {
+  color: var(--debit);
+  font-size: 11px;
+  margin-top: 12px;
+  min-height: 16px;
+  font-weight: 700;
 }
