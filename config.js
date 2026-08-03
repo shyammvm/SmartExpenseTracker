@@ -25,3 +25,26 @@ async function apiFetch(path, options = {}) {
 function formatRupees(n) {
   return `₹${Number(n).toFixed(2)}`;
 }
+
+async function updateConflictsBadge() {
+  try {
+    const data = await apiFetch('/conflicts/count');
+    const badgeEl = document.getElementById('conflictBadge');
+    if (badgeEl) {
+      if (data.count > 0) {
+        badgeEl.textContent = data.count;
+        badgeEl.style.display = 'inline-block';
+      } else {
+        badgeEl.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    // ignore if backend endpoint not available yet
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', updateConflictsBadge);
+} else {
+  updateConflictsBadge();
+}

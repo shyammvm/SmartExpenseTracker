@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#B8B2A0">
+<title>Conflicts — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html">Entry</a>
+  <a href="dashboard.html">Dashboard</a>
+  <a href="categories.html">Categories</a>
+  <a href="conflicts.html" class="active">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+</nav>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow">REVIEW REQUIRED</div>
+    <h1 style="font-size:24px;">Conflicts</h1>
+  </header>
+
+  <div id="conflictsList">
+    <div class="empty-state">Loading pending reviews…</div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  let availableCategories = [];
+
+  async function fetchCategories() {
+    try {
+      const data = await apiFetch('/categories');
+      availableCategories = data.categories.filter(c => c.is_active).map(c => c.name);
+    } catch (e) {
+      console.error('Failed to load categories', e);
+    }
+  }
+
+  function renderCard(item) {
+    const card = document.createElement('div');
+    card.className = 'conflict-card';
+    card.id = `card-${item.id}`;
+
+    const reasonText = item.review_reason || (item.category && item.category.toLowerCase().includes('other') ? 'Categorized as Others' : 'Needs Review');
+    const descText = item.expense || item.category || 'Expense';
+
+    card.innerHTML = `
+      <div class="reason-badge">⚠️ ${reasonText}</div>
+      <div class="conflict-header">
+        <div>
+          <strong style="font-size:15px;">${descText}</strong>
+          <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">
+            Category: <strong>${item.category || 'Unassigned'}</strong> • ${item.expense_date || 'Today'}
+          </div>
+        </div>
+        <div class="amt">${formatRupees(item.amount)}</div>
+      </div>
+
+      ${item.raw_text ? `<div class="raw-text-box"><strong>Raw text:</strong> "${item.raw_text}"</div>` : ''}
+
+      <div class="conflict-actions">
+        <button type="button" class="btn-approve" onclick="approveExpense('${item.id}')">Approve</button>
+        <button type="button" class="btn-edit" onclick="toggleEdit('${item.id}')">Edit</button>
+        <button type="button" class="btn-deny" onclick="denyExpense('${item.id}')">Deny</button>
+      </div>
+
+      <div class="edit-panel" id="edit-${item.id}">
+        <div class="field">
+          <label>Amount (₹)</label>
+          <input type="number" step="0.01" id="edit-amt-${item.id}" value="${item.amount}">
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <select id="edit-cat-${item.id}">
+            ${availableCategories.map(c => `<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Expense Name / Payee</label>
+          <input type="text" id="edit-exp-${item.id}" value="${item.expense || ''}">
+        </div>
+        <button type="button" class="btn-save" onclick="saveAndApprove('${item.id}')">Save & Approve</button>
+      </div>
+    `;
+    return card;
+  }
+
+  async function loadPending() {
+    const listEl = document.getElementById('conflictsList');
+    try {
+      await fetchCategories();
+      const data = await apiFetch('/expenses/pending');
+      if (!data.expenses || data.expenses.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">No pending conflicts! All expenses are reviewed.</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      data.expenses.forEach(item => {
+        listEl.appendChild(renderCard(item));
+      });
+    } catch (e) {
+      listEl.innerHTML = `<div class="empty-state">Could not load conflicts: ${e.message}</div>`;
+    }
+  }
+
+  function toggleEdit(id) {
+    const panel = document.getElementById(`edit-${id}`);
+    if (panel) {
+      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    }
+  }
+
+  async function approveExpense(id) {
+    try {
+      await apiFetch(`/expenses/${id}/review`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'approved' })
+      });
+      removeCard(id);
+    } catch (e) {
+      alert('Error approving expense: ' + e.message);
+    }
+  }
+
+  async function saveAndApprove(id) {
+    const amt = parseFloat(document.getElementById(`edit-amt-${id}`).value);
+    const cat = document.getElementById(`edit-cat-${id}`).value;
+    const exp = document.getElementById(`edit-exp-${id}`).value.trim();
+
+    try {
+      await apiFetch(`/expenses/${id}/review`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount: amt,
+          category: cat,
+          expense: exp,
+          status: 'approved'
+        })
+      });
+      removeCard(id);
+    } catch (e) {
+      alert('Error saving expense: ' + e.message);
+    }
+  }
+
+  async function denyExpense(id) {
+    if (!confirm('Are you sure you want to deny and delete this expense?')) return;
+    try {
+      await apiFetch(`/expenses/${id}`, { method: 'DELETE' });
+      removeCard(id);
+    } catch (e) {
+      alert('Error denying expense: ' + e.message);
+    }
+  }
+
+  function removeCard(id) {
+    const card = document.getElementById(`card-${id}`);
+    if (card) {
+      card.remove();
+    }
+    const remaining = document.querySelectorAll('.conflict-card').length;
+    if (remaining === 0) {
+      document.getElementById('conflictsList').innerHTML = '<div class="empty-state">No pending conflicts! All expenses are reviewed.</div>';
+    }
+    updateConflictsBadge();
+  }
+
+  loadPending();
+</script>
+</body>
+</html>

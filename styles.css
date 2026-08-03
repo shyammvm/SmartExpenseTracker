@@ -315,3 +315,77 @@ input[type=text]:focus, input[type=date]:focus, select:focus { border-bottom-col
   font-size: 12.5px;
   padding: 20px 0;
 }
+
+/* ---- Badge ---- */
+.badge {
+  background: var(--debit);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+/* ---- Conflict Item Cards ---- */
+.conflict-card {
+  border: 1.5px solid var(--paper-line);
+  padding: 14px;
+  margin-bottom: 16px;
+  background: rgba(255,255,255,0.45);
+}
+.conflict-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.conflict-header .amt {
+  font-size: 18px;
+  font-weight: 700;
+}
+.reason-badge {
+  display: inline-block;
+  background: #f4dcd6;
+  color: var(--debit);
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+.raw-text-box {
+  background: #e4dec8;
+  padding: 8px;
+  font-size: 11px;
+  color: #4a473a;
+  border-left: 3px solid var(--debit);
+  margin: 8px 0 12px;
+  word-break: break-word;
+  line-height: 1.4;
+}
+.conflict-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.btn-approve, .btn-edit, .btn-deny, .btn-save {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  padding: 7px 10px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.btn-approve { background: var(--stamp); color: var(--paper); }
+.btn-edit { background: #5a758d; color: #fff; }
+.btn-deny { background: var(--debit); color: #fff; }
+.btn-save { background: var(--stamp); color: var(--paper); width: 100%; margin-top: 10px; }
+
+.edit-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--paper-line);
+  display: none;
+}

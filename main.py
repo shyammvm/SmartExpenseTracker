@@ -109,6 +109,13 @@ back), that is NOT an expense -- set amount to null.
 if there is one (e.g. "Swiggy", "Uber"), otherwise a brief description of the
 spend (e.g. "cash withdrawal", "friend's birthday gift").
 
+needs_review: Set to true if:
+1. The merchant or payee name in the bank SMS is raw, cryptic, or an individual's UPI name (e.g. "SRI SAI DREAM C", "RAMESH KUMAR", raw VPA code), where the actual nature of the expense cannot be determined from text alone.
+2. The closest category picked is "Others" or "Other", or your category choice is an educated guess.
+3. The text is ambiguous or lacks clear merchant/expense details.
+
+review_reason: A brief string explaining why needs_review was set to true (e.g. "Categorized as Others", "Cryptic merchant name", "Ambiguous expense details").
+
 If the text does not appear to describe an outgoing expense, set amount to null."""
 
     # response_schema forces Gemini to return well-formed JSON matching this
@@ -128,8 +135,10 @@ If the text does not appear to describe an outgoing expense, set amount to null.
                     "note": {"type": "string", "nullable": True},
                     "expense_type": {"type": "string", "enum": ["debit", "credit"]},
                     "confidence": {"type": "number"},
+                    "needs_review": {"type": "boolean"},
+                    "review_reason": {"type": "string", "nullable": True},
                 },
-                "required": ["category", "expense_type", "confidence"],
+                "required": ["category", "expense_type", "confidence", "needs_review"],
             },
         ),
     )
@@ -138,6 +147,14 @@ If the text does not appear to describe an outgoing expense, set amount to null.
         return json.loads(response.text)
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail=f"Could not parse AI response: {response.text}")
+
+
+class ExpenseReviewInput(BaseModel):
+    category: str | None = None
+    expense: str | None = None
+    amount: float | None = None
+    expense_type: str | None = None
+    status: str = "approved"
 
 
 @app.post("/parse-expense")
@@ -157,7 +174,19 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
         .limit(1)
         .execute()
     )
-    category_name = cat_result.data[0]["name"] if cat_result.data else None
+    category_name = cat_result.data[0]["name"] if cat_result.data else parsed["category"]
+
+    category_lower = (category_name or "").lower()
+    is_others = category_lower in ("others", "other")
+    needs_review = parsed.get("needs_review", False) or is_others or (parsed.get("confidence", 1.0) < 0.8)
+
+    review_reason = parsed.get("review_reason")
+    if is_others and not review_reason:
+        review_reason = "Categorized as Others"
+    elif needs_review and not review_reason:
+        review_reason = "Obscure merchant or low AI confidence"
+
+    status = "pending_review" if needs_review else "approved"
 
     row = {
         "amount": parsed["amount"],
@@ -169,6 +198,9 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
         "expense_type": parsed.get("expense_type", "debit"),
         "ai_confidence": parsed.get("confidence"),
         "expense_date": str(date.today()),
+        "status": status,
+        "needs_review": needs_review,
+        "review_reason": review_reason,
     }
 
     insert_result = supabase.table("expenses").insert(row).execute()
@@ -176,6 +208,7 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     return {
         "status": "ok",
         "parsed": parsed,
+        "needs_review": needs_review,
         "inserted": insert_result.data[0] if insert_result.data else None,
     }
 
@@ -204,10 +237,63 @@ def add_expense(payload: ManualExpenseInput, _=Depends(verify_secret)):
         "source": "manual",
         "expense_type": payload.expense_type,
         "expense_date": payload.expense_date or str(date.today()),
+        "status": "approved",
+        "needs_review": False,
     }
 
     insert_result = supabase.table("expenses").insert(row).execute()
     return {"status": "ok", "inserted": insert_result.data[0] if insert_result.data else None}
+
+
+@app.get("/expenses/pending")
+def get_pending_expenses(_=Depends(verify_secret)):
+    """Fetch all expenses flagged as pending review."""
+    result = (
+        supabase.table("expenses")
+        .select("*")
+        .eq("status", "pending_review")
+        .execute()
+    )
+    return {"expenses": result.data}
+
+
+@app.get("/conflicts/count")
+def get_conflicts_count(_=Depends(verify_secret)):
+    """Fetch count of pending conflicts."""
+    result = (
+        supabase.table("expenses")
+        .select("id", count="exact")
+        .eq("status", "pending_review")
+        .execute()
+    )
+    count = result.count if result.count is not None else len(result.data)
+    return {"count": count}
+
+
+@app.patch("/expenses/{expense_id}/review")
+def review_expense(expense_id: str, payload: ExpenseReviewInput, _=Depends(verify_secret)):
+    """Approve or edit & approve a pending expense."""
+    updates = {"status": payload.status, "needs_review": False}
+    if payload.category:
+        updates["category"] = payload.category
+    if payload.expense is not None:
+        updates["expense"] = payload.expense
+    if payload.amount is not None:
+        updates["amount"] = payload.amount
+    if payload.expense_type:
+        updates["expense_type"] = payload.expense_type
+
+    result = supabase.table("expenses").update(updates).eq("id", expense_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"status": "ok", "updated": result.data[0]}
+
+
+@app.delete("/expenses/{expense_id}")
+def delete_expense(expense_id: str, _=Depends(verify_secret)):
+    """Deny / delete an expense record."""
+    result = supabase.table("expenses").delete().eq("id", expense_id).execute()
+    return {"status": "ok"}
 
 
 @app.get("/categories")
@@ -259,6 +345,7 @@ def summary_entry_page(_=Depends(verify_secret)):
         supabase.table("expenses")
         .select("amount")
         .eq("expense_date", str(today))
+        .neq("status", "pending_review")
         .execute()
     )
     today_total = sum(r["amount"] for r in today_rows.data)
@@ -268,6 +355,7 @@ def summary_entry_page(_=Depends(verify_secret)):
         .select("amount, category_type")
         .gte("expense_date", str(month_start))
         .lte("expense_date", str(today))
+        .neq("status", "pending_review")
         .execute()
     )
     month_total = sum(r["amount"] for r in month_rows.data)
@@ -297,6 +385,7 @@ def summary_dashboard(_=Depends(verify_secret)):
         .select("amount, category, category_type")
         .gte("expense_date", str(month_start))
         .lte("expense_date", str(today))
+        .neq("status", "pending_review")
         .execute()
     )
 
