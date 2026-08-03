@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#EDE7D3">
+<title>Ledger</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231F5C4F'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23EDE7D3' font-family='monospace'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #EDE7D3;
+    --paper-line: #d9d0b4;
+    --ink: #23241F;
+    --ink-faint: #8A8570;
+    --stamp: #1F5C4F;
+    --stamp-dark: #163f36;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #B8B2A0;
+    background-image: radial-gradient(circle at 50% 0%, #c7c1ae, #a7a190);
+    font-family: 'Space Mono', monospace;
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+    padding: 24px 12px 60px;
+  }
+  .receipt {
+    width: 100%;
+    max-width: 400px;
+    background: var(--paper);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    padding: 28px 22px 34px;
+    position: relative;
+  }
+  .receipt::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -14px;
+    height: 14px;
+    background:
+      linear-gradient(-45deg, var(--paper) 8px, transparent 0),
+      linear-gradient(45deg, var(--paper) 8px, transparent 0);
+    background-size: 16px 16px;
+    background-repeat: repeat-x;
+  }
+  header { text-align: center; margin-bottom: 18px; }
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--ink-faint);
+    margin-bottom: 4px;
+  }
+  h1 {
+    font-family: 'Big Shoulders Text', sans-serif;
+    font-weight: 800;
+    font-size: 30px;
+    letter-spacing: 1px;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .divider {
+    border: none;
+    border-top: 2px dashed var(--paper-line);
+    margin: 18px 0;
+  }
+  .field { margin-bottom: 20px; }
+  label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .amount-row {
+    display: flex;
+    align-items: baseline;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 6px;
+  }
+  .amount-row span {
+    font-size: 26px;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  #amount {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-family: 'Space Mono', monospace;
+    font-size: 34px;
+    font-weight: 700;
+    text-align: right;
+    color: var(--ink);
+    outline: none;
+    min-width: 0;
+  }
+  #amount::placeholder { color: #c9c2a8; }
+
+  .chips {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .chip {
+    border: 1.5px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+    font-family: 'Space Mono', monospace;
+    font-size: 12.5px;
+    padding: 10px 6px;
+    cursor: pointer;
+    text-align: left;
+    letter-spacing: 0.3px;
+  }
+  .chip.selected {
+    background: var(--stamp);
+    border-color: var(--stamp);
+    color: var(--paper);
+    font-weight: 700;
+  }
+
+  input[type=text], input[type=date] {
+    width: 100%;
+    border: none;
+    border-bottom: 1.5px solid var(--paper-line);
+    background: transparent;
+    font-family: 'Space Mono', monospace;
+    font-size: 15px;
+    padding: 6px 2px;
+    color: var(--ink);
+    outline: none;
+  }
+  input[type=text]:focus, input[type=date]:focus { border-bottom-color: var(--ink); }
+
+  .submit-wrap { text-align: center; margin-top: 26px; }
+  #submitBtn {
+    font-family: 'Big Shoulders Text', sans-serif;
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--stamp);
+    background: transparent;
+    border: 3px solid var(--stamp);
+    border-radius: 50%;
+    width: 110px;
+    height: 110px;
+    transform: rotate(-6deg);
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+  #submitBtn:active { transform: rotate(-6deg) scale(0.94); }
+  #submitBtn.stamped {
+    background: var(--stamp);
+    color: var(--paper);
+  }
+  #submitBtn:disabled { opacity: 0.4; cursor: default; }
+
+  .status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 12px;
+    min-height: 16px;
+  }
+  .status.error { color: #9c3b2e; }
+
+  .tape { margin-top: 30px; }
+  .tape-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .tape-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 5px 0;
+    border-bottom: 1px dotted var(--paper-line);
+    animation: printIn 0.25s ease;
+  }
+  .tape-row .cat { color: var(--ink-faint); }
+  @keyframes printIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .tape-total {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 14px;
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 2px solid var(--ink);
+  }
+</style>
+</head>
+<body>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow">EXPENSE LEDGER</div>
+    <h1>New Entry</h1>
+  </header>
+
+  <div class="field">
+    <label for="amount">Amount</label>
+    <div class="amount-row">
+      <span>₹</span>
+      <input type="text" id="amount" inputmode="decimal" placeholder="0.00">
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Category</label>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="field">
+    <label for="expense">Expense</label>
+    <input type="text" id="expense" placeholder="e.g. lunch with Priya">
+  </div>
+
+  <div class="field">
+    <label for="date">Date</label>
+    <input type="date" id="date">
+  </div>
+
+  <div class="field">
+    <label>Type</label>
+    <div class="chips" id="typeChips" style="grid-template-columns: repeat(2, 1fr);">
+      <button type="button" class="chip selected" data-type="debit">Debit</button>
+      <button type="button" class="chip" data-type="credit">Credit</button>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="submit-wrap">
+    <button id="submitBtn">Stamp<br>Entry</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="tape" id="tape" style="display:none;">
+    <div class="tape-title">Today's Tape</div>
+    <div id="tapeRows"></div>
+    <div class="tape-total"><span>Total</span><span id="tapeTotal">₹0.00</span></div>
+  </div>
+</div>
+
+<script>
+  // ---- Configuration: fill these in after deploying the backend ----
+  const CONFIG = {
+    apiUrl: "https://YOUR-RAILWAY-APP.up.railway.app",
+    secret: "YOUR_PARSE_ENDPOINT_SECRET"
+  };
+
+  const CATEGORIES = [
+    "Rent/Cook", "Credit Card", "Food", "Grocery", "Others", "EMI",
+    "Subscriptions", "Bills", "Travel", "Shopping", "Petrol", "Vehicle",
+    "Entertainment", "Investment", "Health", "Donations"
+  ];
+
+  const chipsEl = document.getElementById('chips');
+  let selectedCategory = null;
+
+  CATEGORIES.forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = 'chip';
+    btn.textContent = cat;
+    btn.type = 'button';
+    btn.onclick = () => {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedCategory = cat;
+    };
+    chipsEl.appendChild(btn);
+  });
+
+  document.getElementById('date').value = new Date().toISOString().slice(0, 10);
+
+  let selectedType = 'debit';
+  document.querySelectorAll('#typeChips .chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#typeChips .chip').forEach(c => c.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedType = btn.dataset.type;
+    });
+  });
+
+  let todayTotal = 0;
+  const tapeEl = document.getElementById('tape');
+  const tapeRowsEl = document.getElementById('tapeRows');
+  const tapeTotalEl = document.getElementById('tapeTotal');
+
+  function addTapeRow(amount, category, expenseDesc) {
+    todayTotal += amount;
+    tapeEl.style.display = 'block';
+    const row = document.createElement('div');
+    row.className = 'tape-row';
+    row.innerHTML = `<span>${expenseDesc ? expenseDesc : category}</span><span class="cat">₹${amount.toFixed(2)}</span>`;
+    tapeRowsEl.prepend(row);
+    tapeTotalEl.textContent = `₹${todayTotal.toFixed(2)}`;
+  }
+
+  const submitBtn = document.getElementById('submitBtn');
+  const statusEl = document.getElementById('status');
+  const amountEl = document.getElementById('amount');
+  const expenseEl = document.getElementById('expense');
+  const dateEl = document.getElementById('date');
+
+  submitBtn.addEventListener('click', async () => {
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+
+    const amount = parseFloat(amountEl.value);
+    if (!amount || amount <= 0) {
+      statusEl.textContent = 'Enter an amount first';
+      statusEl.className = 'status error';
+      return;
+    }
+    if (!selectedCategory) {
+      statusEl.textContent = 'Pick a category';
+      statusEl.className = 'status error';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Stamping…';
+
+    try {
+      const res = await fetch(`${CONFIG.apiUrl}/add-expense`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-endpoint-secret': CONFIG.secret
+        },
+        body: JSON.stringify({
+          amount: amount,
+          category: selectedCategory,
+          expense: expenseEl.value || null,
+          expense_type: selectedType,
+          expense_date: dateEl.value
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed (${res.status})`);
+      }
+
+      addTapeRow(amount, selectedCategory, expenseEl.value);
+
+      submitBtn.classList.add('stamped');
+      statusEl.textContent = 'Added';
+      setTimeout(() => submitBtn.classList.remove('stamped'), 400);
+
+      amountEl.value = '';
+      expenseEl.value = '';
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+      selectedCategory = null;
+      document.querySelector('#typeChips .chip[data-type="debit"]').classList.add('selected');
+      selectedType = 'debit';
+      amountEl.focus();
+    } catch (e) {
+      statusEl.textContent = e.message || 'Something went wrong';
+      statusEl.className = 'status error';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
