@@ -157,6 +157,57 @@ class ExpenseReviewInput(BaseModel):
     status: str = "approved"
 
 
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL")
+
+
+def send_conflict_email(amount: float, expense: str | None, category: str | None, reason: str | None, raw_text: str | None):
+    key = os.environ.get("RESEND_API_KEY")
+    to_email = os.environ.get("NOTIFICATION_EMAIL")
+    if not key or not to_email:
+        return
+
+    subject = f"⚠️ Expense Review Needed: ₹{amount:.2f} ({expense or category or 'Expense'})"
+    
+    html_content = f"""
+    <div style="font-family: monospace, sans-serif; max-width: 520px; padding: 24px; border: 2px solid #1F5C4F; background: #EDE7D3; color: #23241F; border-radius: 8px;">
+      <h2 style="color: #9c3b2e; margin-top: 0; font-size: 20px;">⚠️ Expense Conflict Review Required</h2>
+      <p style="font-size: 14px;">An incoming transaction was flagged for review:</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+        <tr><td style="padding: 6px 0; color: #8A8570;"><strong>Amount:</strong></td><td style="font-weight: bold; font-size: 18px;">₹{amount:.2f}</td></tr>
+        <tr><td style="padding: 6px 0; color: #8A8570;"><strong>Payee / Merchant:</strong></td><td>{expense or 'N/A'}</td></tr>
+        <tr><td style="padding: 6px 0; color: #8A8570;"><strong>Category:</strong></td><td>{category or 'Unassigned'}</td></tr>
+        <tr><td style="padding: 6px 0; color: #8A8570;"><strong>Flag Reason:</strong></td><td style="color: #9c3b2e; font-weight: bold;">{reason or 'Needs review'}</td></tr>
+      </table>
+      {"<div style='background: #e4dec8; padding: 12px; border-left: 4px solid #9c3b2e; font-size: 12px; margin-bottom: 20px;'><strong>Raw text:</strong> " + raw_text + "</div>" if raw_text else ""}
+      <p style="margin-top: 24px;">
+        <a href="https://web-production-7c3e8.up.railway.app/conflicts.html" 
+           style="background: #1F5C4F; color: #EDE7D3; padding: 12px 20px; text-decoration: none; font-weight: bold; display: inline-block; border-radius: 4px; text-transform: uppercase; font-size: 13px;">
+          Review & Approve Item
+        </a>
+      </p>
+    </div>
+    """
+
+    try:
+        httpx.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": "Ledger Tracker <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content,
+            },
+            timeout=5.0,
+        )
+    except Exception as e:
+        print(f"Error sending Resend conflict notification email: {e}")
+
+
 @app.post("/parse-expense")
 def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     category_names = get_category_names()
@@ -204,6 +255,15 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     }
 
     insert_result = supabase.table("expenses").insert(row).execute()
+
+    if needs_review:
+        send_conflict_email(
+            amount=parsed["amount"],
+            expense=parsed.get("expense"),
+            category=category_name,
+            reason=review_reason,
+            raw_text=payload.text,
+        )
 
     return {
         "status": "ok",
