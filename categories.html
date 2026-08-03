@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#EDE7D3">
+<title>Categories — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html">Entry</a>
+  <a href="dashboard.html">Dashboard</a>
+  <a href="categories.html" class="active">Categories</a>
+</nav>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow">MANAGE</div>
+    <h1 style="font-size:24px;">Categories</h1>
+  </header>
+
+  <div id="catList">
+    <div class="empty-state">Loading…</div>
+  </div>
+
+  <hr class="divider">
+
+  <label>Add New Category</label>
+  <div class="add-cat-form">
+    <input type="text" id="newCatName" placeholder="Category name">
+    <select id="newCatType">
+      <option value="variable">Variable</option>
+      <option value="fixed">Fixed</option>
+    </select>
+    <button id="addCatBtn">Add</button>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  const catListEl = document.getElementById('catList');
+  const statusEl = document.getElementById('status');
+
+  function showStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'status error' : 'status';
+  }
+
+  function renderCategories(categories) {
+    if (categories.length === 0) {
+      catListEl.innerHTML = '<div class="empty-state">No categories yet — add one below</div>';
+      return;
+    }
+    catListEl.innerHTML = '';
+    categories.forEach(cat => {
+      const row = document.createElement('div');
+      row.className = 'cat-row';
+      row.innerHTML = `
+        <span style="${cat.is_active ? '' : 'opacity:0.4;text-decoration:line-through;'}">${cat.name}</span>
+        <select data-name="${cat.name}" class="type-select">
+          <option value="variable" ${cat.type === 'variable' ? 'selected' : ''}>Variable</option>
+          <option value="fixed" ${cat.type === 'fixed' ? 'selected' : ''}>Fixed</option>
+        </select>
+        <input type="checkbox" class="toggle active-toggle" data-name="${cat.name}" ${cat.is_active ? 'checked' : ''} title="Active">
+      `;
+      catListEl.appendChild(row);
+    });
+
+    document.querySelectorAll('.type-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        try {
+          await apiFetch(`/categories/${encodeURIComponent(sel.dataset.name)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ type: sel.value })
+          });
+          showStatus(`Updated ${sel.dataset.name}`);
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+
+    document.querySelectorAll('.active-toggle').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        try {
+          await apiFetch(`/categories/${encodeURIComponent(chk.dataset.name)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: chk.checked })
+          });
+          showStatus(`${chk.checked ? 'Activated' : 'Deactivated'} ${chk.dataset.name}`);
+          loadCategories(); // re-render so the strikethrough style updates
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+  }
+
+  async function loadCategories() {
+    try {
+      const data = await apiFetch('/categories');
+      renderCategories(data.categories);
+    } catch (e) {
+      catListEl.innerHTML = `<div class="empty-state">Could not load categories: ${e.message}</div>`;
+    }
+  }
+
+  document.getElementById('addCatBtn').addEventListener('click', async () => {
+    const name = document.getElementById('newCatName').value.trim();
+    const type = document.getElementById('newCatType').value;
+    if (!name) {
+      showStatus('Enter a category name', true);
+      return;
+    }
+    try {
+      await apiFetch('/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name, type })
+      });
+      document.getElementById('newCatName').value = '';
+      showStatus(`Added ${name}`);
+      loadCategories();
+    } catch (e) {
+      showStatus(e.message, true);
+    }
+  });
+
+  loadCategories();
+</script>
+</body>
+</html>

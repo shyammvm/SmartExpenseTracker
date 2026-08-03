@@ -10,202 +10,29 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231F5C4F'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23EDE7D3' font-family='monospace'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --paper: #EDE7D3;
-    --paper-line: #d9d0b4;
-    --ink: #23241F;
-    --ink-faint: #8A8570;
-    --stamp: #1F5C4F;
-    --stamp-dark: #163f36;
-  }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    background: #B8B2A0;
-    background-image: radial-gradient(circle at 50% 0%, #c7c1ae, #a7a190);
-    font-family: 'Space Mono', monospace;
-    color: var(--ink);
-    display: flex;
-    justify-content: center;
-    padding: 24px 12px 60px;
-  }
-  .receipt {
-    width: 100%;
-    max-width: 400px;
-    background: var(--paper);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.25);
-    padding: 28px 22px 34px;
-    position: relative;
-  }
-  .receipt::after {
-    content: "";
-    position: absolute;
-    left: 0; right: 0; bottom: -14px;
-    height: 14px;
-    background:
-      linear-gradient(-45deg, var(--paper) 8px, transparent 0),
-      linear-gradient(45deg, var(--paper) 8px, transparent 0);
-    background-size: 16px 16px;
-    background-repeat: repeat-x;
-  }
-  header { text-align: center; margin-bottom: 18px; }
-  .eyebrow {
-    font-size: 11px;
-    letter-spacing: 3px;
-    color: var(--ink-faint);
-    margin-bottom: 4px;
-  }
-  h1 {
-    font-family: 'Big Shoulders Text', sans-serif;
-    font-weight: 800;
-    font-size: 30px;
-    letter-spacing: 1px;
-    margin: 0;
-    text-transform: uppercase;
-  }
-  .divider {
-    border: none;
-    border-top: 2px dashed var(--paper-line);
-    margin: 18px 0;
-  }
-  .field { margin-bottom: 20px; }
-  label {
-    display: block;
-    font-size: 11px;
-    letter-spacing: 2px;
-    color: var(--ink-faint);
-    text-transform: uppercase;
-    margin-bottom: 8px;
-  }
-  .amount-row {
-    display: flex;
-    align-items: baseline;
-    border-bottom: 2px solid var(--ink);
-    padding-bottom: 6px;
-  }
-  .amount-row span {
-    font-size: 26px;
-    font-weight: 700;
-    margin-right: 6px;
-  }
-  #amount {
-    flex: 1;
-    border: none;
-    background: transparent;
-    font-family: 'Space Mono', monospace;
-    font-size: 34px;
-    font-weight: 700;
-    text-align: right;
-    color: var(--ink);
-    outline: none;
-    min-width: 0;
-  }
-  #amount::placeholder { color: #c9c2a8; }
-
-  .chips {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-  .chip {
-    border: 1.5px solid var(--ink);
-    background: transparent;
-    color: var(--ink);
-    font-family: 'Space Mono', monospace;
-    font-size: 12.5px;
-    padding: 10px 6px;
-    cursor: pointer;
-    text-align: left;
-    letter-spacing: 0.3px;
-  }
-  .chip.selected {
-    background: var(--stamp);
-    border-color: var(--stamp);
-    color: var(--paper);
-    font-weight: 700;
-  }
-
-  input[type=text], input[type=date] {
-    width: 100%;
-    border: none;
-    border-bottom: 1.5px solid var(--paper-line);
-    background: transparent;
-    font-family: 'Space Mono', monospace;
-    font-size: 15px;
-    padding: 6px 2px;
-    color: var(--ink);
-    outline: none;
-  }
-  input[type=text]:focus, input[type=date]:focus { border-bottom-color: var(--ink); }
-
-  .submit-wrap { text-align: center; margin-top: 26px; }
-  #submitBtn {
-    font-family: 'Big Shoulders Text', sans-serif;
-    font-weight: 800;
-    font-size: 17px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--stamp);
-    background: transparent;
-    border: 3px solid var(--stamp);
-    border-radius: 50%;
-    width: 110px;
-    height: 110px;
-    transform: rotate(-6deg);
-    cursor: pointer;
-    transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
-  }
-  #submitBtn:active { transform: rotate(-6deg) scale(0.94); }
-  #submitBtn.stamped {
-    background: var(--stamp);
-    color: var(--paper);
-  }
-  #submitBtn:disabled { opacity: 0.4; cursor: default; }
-
-  .status {
-    text-align: center;
-    font-size: 12px;
-    color: var(--ink-faint);
-    margin-top: 12px;
-    min-height: 16px;
-  }
-  .status.error { color: #9c3b2e; }
-
-  .tape { margin-top: 30px; }
-  .tape-title {
-    font-size: 11px;
-    letter-spacing: 2px;
-    color: var(--ink-faint);
-    text-transform: uppercase;
-    margin-bottom: 10px;
-  }
-  .tape-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    padding: 5px 0;
-    border-bottom: 1px dotted var(--paper-line);
-    animation: printIn 0.25s ease;
-  }
-  .tape-row .cat { color: var(--ink-faint); }
-  @keyframes printIn {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .tape-total {
-    display: flex;
-    justify-content: space-between;
-    font-weight: 700;
-    font-size: 14px;
-    padding-top: 10px;
-    margin-top: 6px;
-    border-top: 2px solid var(--ink);
-  }
-</style>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+<nav class="nav">
+  <a href="index.html" class="active">Entry</a>
+  <a href="dashboard.html">Dashboard</a>
+  <a href="categories.html">Categories</a>
+</nav>
+
+<div class="receipt" id="summaryCard">
+  <header>
+    <div class="eyebrow">THIS MONTH SO FAR</div>
+    <h1 style="font-size:24px;">Summary</h1>
+  </header>
+  <div class="stat-grid" id="statGrid">
+    <div class="stat-card"><div class="label">Today</div><div class="value" id="statToday">—</div></div>
+    <div class="stat-card"><div class="label">This Month</div><div class="value" id="statMonth">—</div></div>
+    <div class="stat-card"><div class="label">Fixed</div><div class="value" id="statFixed">—</div></div>
+    <div class="stat-card"><div class="label">Variable</div><div class="value" id="statVariable">—</div></div>
+    <div class="stat-card wide"><div class="label">Avg Daily Variable Spend</div><div class="value" id="statAvgVar">—</div></div>
+  </div>
+</div>
 
 <div class="receipt">
   <header>
@@ -223,7 +50,9 @@
 
   <div class="field">
     <label>Category</label>
-    <div class="chips" id="chips"></div>
+    <div class="chips" id="chips">
+      <div class="empty-state" id="chipsLoading">Loading categories…</div>
+    </div>
   </div>
 
   <div class="field">
@@ -258,34 +87,57 @@
   </div>
 </div>
 
+<script src="config.js"></script>
 <script>
-  // ---- Configuration: fill these in after deploying the backend ----
-  const CONFIG = {
-    apiUrl: "web-production-7c3e8.up.railway.app",
-    secret: "lalalalala5times"
-  };
-
-  const CATEGORIES = [
-    "Rent/Cook", "Credit Card", "Food", "Grocery", "Others", "EMI",
-    "Subscriptions", "Bills", "Travel", "Shopping", "Petrol", "Vehicle",
-    "Entertainment", "Investment", "Health", "Donations"
-  ];
-
   const chipsEl = document.getElementById('chips');
   let selectedCategory = null;
 
-  CATEGORIES.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.className = 'chip';
-    btn.textContent = cat;
-    btn.type = 'button';
-    btn.onclick = () => {
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
-      btn.classList.add('selected');
-      selectedCategory = cat;
-    };
-    chipsEl.appendChild(btn);
-  });
+  function renderCategoryChips(categories) {
+    chipsEl.innerHTML = '';
+    if (categories.length === 0) {
+      chipsEl.innerHTML = '<div class="empty-state">No categories yet — add one on the Categories page</div>';
+      return;
+    }
+    categories.forEach(cat => {
+      const btn = document.createElement('button');
+      btn.className = 'chip';
+      btn.textContent = cat.name;
+      btn.type = 'button';
+      btn.onclick = () => {
+        document.querySelectorAll('#chips .chip').forEach(c => c.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedCategory = cat.name;
+      };
+      chipsEl.appendChild(btn);
+    });
+  }
+
+  async function loadCategories() {
+    try {
+      const data = await apiFetch('/categories');
+      const active = data.categories.filter(c => c.is_active);
+      renderCategoryChips(active);
+    } catch (e) {
+      chipsEl.innerHTML = `<div class="empty-state">Could not load categories: ${e.message}</div>`;
+    }
+  }
+
+  async function loadSummary() {
+    try {
+      const s = await apiFetch('/summary/entry-page');
+      document.getElementById('statToday').textContent = formatRupees(s.today_total);
+      document.getElementById('statMonth').textContent = formatRupees(s.month_total);
+      document.getElementById('statFixed').textContent = formatRupees(s.month_fixed_total);
+      document.getElementById('statVariable').textContent = formatRupees(s.month_variable_total);
+      document.getElementById('statAvgVar').textContent = formatRupees(s.avg_daily_variable_spend) + ' / day';
+    } catch (e) {
+      document.getElementById('summaryCard').innerHTML =
+        `<div class="empty-state">Could not load summary: ${e.message}</div>`;
+    }
+  }
+
+  loadCategories();
+  loadSummary();
 
   document.getElementById('date').value = new Date().toISOString().slice(0, 10);
 
@@ -339,12 +191,8 @@
     statusEl.textContent = 'Stamping…';
 
     try {
-      const res = await fetch(`${CONFIG.apiUrl}/add-expense`, {
+      await apiFetch('/add-expense', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-endpoint-secret': CONFIG.secret
-        },
         body: JSON.stringify({
           amount: amount,
           category: selectedCategory,
@@ -354,11 +202,6 @@
         })
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Request failed (${res.status})`);
-      }
-
       addTapeRow(amount, selectedCategory, expenseEl.value);
 
       submitBtn.classList.add('stamped');
@@ -367,11 +210,13 @@
 
       amountEl.value = '';
       expenseEl.value = '';
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('#chips .chip').forEach(c => c.classList.remove('selected'));
       selectedCategory = null;
       document.querySelector('#typeChips .chip[data-type="debit"]').classList.add('selected');
       selectedType = 'debit';
       amountEl.focus();
+
+      loadSummary(); // refresh totals to reflect the new entry
     } catch (e) {
       statusEl.textContent = e.message || 'Something went wrong';
       statusEl.className = 'status error';

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#EDE7D3">
+<title>Dashboard — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html">Entry</a>
+  <a href="dashboard.html" class="active">Dashboard</a>
+  <a href="categories.html">Categories</a>
+</nav>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow" id="monthLabel">THIS MONTH</div>
+    <h1 style="font-size:24px;">Dashboard</h1>
+  </header>
+
+  <div class="stat-card wide" style="margin-bottom:20px;">
+    <div class="label">Total Spend</div>
+    <div class="value" id="monthTotal" style="font-size:28px;">—</div>
+  </div>
+
+  <label>By Category</label>
+  <div id="catBars">
+    <div class="empty-state">Loading…</div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  function renderBars(categories, monthTotal) {
+    const barsEl = document.getElementById('catBars');
+    if (categories.length === 0) {
+      barsEl.innerHTML = '<div class="empty-state">No expenses recorded this month yet</div>';
+      return;
+    }
+    const max = Math.max(...categories.map(c => c.total));
+    barsEl.innerHTML = '';
+    categories.forEach(c => {
+      const pct = max > 0 ? (c.total / max) * 100 : 0;
+      const row = document.createElement('div');
+      row.className = 'bar-row';
+      row.innerHTML = `
+        <div class="bar-label">
+          <span>${c.category} <span style="color:var(--ink-faint);font-size:10px;">(${c.type})</span></span>
+          <span class="amt">${formatRupees(c.total)}</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill ${c.type === 'fixed' ? 'fixed' : ''}" style="width:${pct}%"></div>
+        </div>
+      `;
+      barsEl.appendChild(row);
+    });
+  }
+
+  async function loadDashboard() {
+    try {
+      const data = await apiFetch('/summary/dashboard');
+      document.getElementById('monthLabel').textContent = data.month;
+      document.getElementById('monthTotal').textContent = formatRupees(data.month_total);
+      renderBars(data.categories, data.month_total);
+    } catch (e) {
+      document.getElementById('catBars').innerHTML =
+        `<div class="empty-state">Could not load dashboard: ${e.message}</div>`;
+    }
+  }
+
+  loadDashboard();
+</script>
+</body>
+</html>

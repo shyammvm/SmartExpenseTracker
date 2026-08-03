@@ -67,6 +67,16 @@ class ManualExpenseInput(BaseModel):
     expense_date: str | None = None  # "YYYY-MM-DD", defaults to today if omitted
 
 
+class CategoryInput(BaseModel):
+    name: str
+    type: str  # "fixed" | "variable"
+
+
+class CategoryUpdateInput(BaseModel):
+    type: str | None = None
+    is_active: bool | None = None
+
+
 def verify_secret(x_endpoint_secret: str | None = Header(default=None, alias="x-endpoint-secret")):
     if PARSE_ENDPOINT_SECRET and x_endpoint_secret != PARSE_ENDPOINT_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -202,7 +212,112 @@ def add_expense(payload: ManualExpenseInput, _=Depends(verify_secret)):
 
 @app.get("/categories")
 def list_categories(_=Depends(verify_secret)):
-    return {"categories": get_category_names()}
+    """Returns full category records -- used by the categories management
+    page. The entry page filters this client-side to active ones only."""
+    result = supabase.table("categories").select("name, type, is_active").order("name").execute()
+    return {"categories": result.data}
+
+
+@app.post("/categories")
+def create_category(payload: CategoryInput, _=Depends(verify_secret)):
+    if payload.type not in ("fixed", "variable"):
+        raise HTTPException(status_code=422, detail="type must be 'fixed' or 'variable'")
+    try:
+        result = supabase.table("categories").insert({
+            "name": payload.name,
+            "type": payload.type,
+        }).execute()
+    except Exception as e:
+        # most likely a duplicate name (case-insensitive unique index)
+        raise HTTPException(status_code=409, detail=f"Could not create category: {e}")
+    return {"status": "ok", "category": result.data[0] if result.data else None}
+
+
+@app.patch("/categories/{name}")
+def update_category(name: str, payload: CategoryUpdateInput, _=Depends(verify_secret)):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    if "type" in updates and updates["type"] not in ("fixed", "variable"):
+        raise HTTPException(status_code=422, detail="type must be 'fixed' or 'variable'")
+
+    result = supabase.table("categories").update(updates).ilike("name", name).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail=f"Category not found: {name}")
+    return {"status": "ok", "category": result.data[0]}
+
+
+@app.get("/summary/entry-page")
+def summary_entry_page(_=Depends(verify_secret)):
+    """Quick stats for the entry page: today's total, this month's total,
+    fixed vs variable split, and average daily variable spend so far this
+    month (a rough day-to-day burn-rate indicator)."""
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    today_rows = (
+        supabase.table("expenses")
+        .select("amount")
+        .eq("expense_date", str(today))
+        .execute()
+    )
+    today_total = sum(r["amount"] for r in today_rows.data)
+
+    month_rows = (
+        supabase.table("expenses_flat")
+        .select("amount, category_type")
+        .gte("expense_date", str(month_start))
+        .lte("expense_date", str(today))
+        .execute()
+    )
+    month_total = sum(r["amount"] for r in month_rows.data)
+    month_variable = sum(r["amount"] for r in month_rows.data if r["category_type"] == "variable")
+    month_fixed = sum(r["amount"] for r in month_rows.data if r["category_type"] == "fixed")
+
+    days_elapsed = today.day  # 1st of month = day 1, so this is correct as a divisor
+    avg_daily_variable = round(month_variable / days_elapsed, 2) if days_elapsed else 0
+
+    return {
+        "today_total": round(today_total, 2),
+        "month_total": round(month_total, 2),
+        "month_fixed_total": round(month_fixed, 2),
+        "month_variable_total": round(month_variable, 2),
+        "avg_daily_variable_spend": avg_daily_variable,
+    }
+
+
+@app.get("/summary/dashboard")
+def summary_dashboard(_=Depends(verify_secret)):
+    """Category-wise breakdown for the current month, for the dashboard page."""
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    rows = (
+        supabase.table("expenses_flat")
+        .select("amount, category, category_type")
+        .gte("expense_date", str(month_start))
+        .lte("expense_date", str(today))
+        .execute()
+    )
+
+    by_category: dict[str, dict] = {}
+    for r in rows.data:
+        cat = r["category"]
+        entry = by_category.setdefault(cat, {"category": cat, "type": r["category_type"], "total": 0, "count": 0})
+        entry["total"] += r["amount"]
+        entry["count"] += 1
+
+    categories = sorted(by_category.values(), key=lambda c: c["total"], reverse=True)
+    for c in categories:
+        c["total"] = round(c["total"], 2)
+
+    month_total = round(sum(c["total"] for c in categories), 2)
+
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "month_total": month_total,
+        "categories": categories,
+    }
 
 
 @app.get("/health")
