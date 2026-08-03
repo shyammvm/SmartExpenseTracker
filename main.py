@@ -181,7 +181,7 @@ def send_conflict_email(amount: float, expense: str | None, category: str | None
       </table>
       {"<div style='background: #e4dec8; padding: 12px; border-left: 4px solid #9c3b2e; font-size: 12px; margin-bottom: 20px;'><strong>Raw text:</strong> " + raw_text + "</div>" if raw_text else ""}
       <p style="margin-top: 24px;">
-        <a href="https://web-production-7c3e8.up.railway.app/conflicts.html" 
+        <a href="https://shyammvm.github.io/SmartExpenseTracker/conflicts.html" 
            style="background: #1F5C4F; color: #EDE7D3; padding: 12px 20px; text-decoration: none; font-weight: bold; display: inline-block; border-radius: 4px; text-transform: uppercase; font-size: 13px;">
           Review & Approve Item
         </a>
