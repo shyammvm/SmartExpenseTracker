@@ -31,22 +31,30 @@ body {
   width: 100%;
   max-width: 400px;
   display: flex;
-  justify-content: center;
-  gap: 4px;
+  justify-content: space-between;
+  gap: 3px;
   margin-bottom: 14px;
+  box-sizing: border-box;
 }
 
 .nav a {
+  flex: 1;
+  min-width: 0;
   font-family: 'Space Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 1.5px;
+  font-size: 9.5px;
+  letter-spacing: 0.2px;
   text-transform: uppercase;
   text-decoration: none;
   color: var(--ink-faint);
   background: var(--paper);
-  padding: 8px 12px;
+  padding: 8px 2px;
   border: 1.5px solid var(--paper-line);
   opacity: 0.75;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 
 .nav a.active {
@@ -56,6 +64,21 @@ body {
   opacity: 1;
   font-weight: 700;
 }
+
+.nav .badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  margin-left: 2px;
+}
+
+@media (max-width: 360px) {
+  .nav a {
+    font-size: 8.5px;
+    letter-spacing: 0px;
+    padding: 7px 1px;
+  }
+}
+
 
 /* ---- Receipt card (shared container) ---- */
 .receipt {
