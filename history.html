@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#B8B2A0">
+<title>History — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html">Entry</a>
+  <a href="dashboard.html">Dashboard</a>
+  <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+  <a href="instructions.html">Instructions</a>
+  <a href="history.html" class="active">History</a>
+  <a href="categories.html">Categories</a>
+</nav>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow">LAST 30 TRANSACTIONS</div>
+    <h1 style="font-size:24px;">History</h1>
+  </header>
+
+  <div class="status" id="status"></div>
+
+  <div id="historyList">
+    <div class="empty-state">Loading recent expenses…</div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  let recentExpenses = [];
+  let availableCategories = [];
+
+  const statusEl = document.getElementById('status');
+  const historyListEl = document.getElementById('historyList');
+
+  function showStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'status error' : 'status';
+  }
+
+  async function loadCategories() {
+    try {
+      const data = await apiFetch('/categories');
+      availableCategories = data.categories.filter(c => c.is_active);
+    } catch (e) {
+      // fallback
+    }
+  }
+
+  function getCategoryOptionsHTML(selectedCat) {
+    let html = `<option value="" ${!selectedCat ? 'selected' : ''}>(Uncategorized)</option>`;
+    availableCategories.forEach(c => {
+      const sel = c.name === selectedCat ? 'selected' : '';
+      html += `<option value="${c.name}" ${sel}>${c.name}</option>`;
+    });
+    return html;
+  }
+
+  function renderHistory() {
+    if (recentExpenses.length === 0) {
+      historyListEl.innerHTML = '<div class="empty-state">No recent expenses found</div>';
+      return;
+    }
+
+    historyListEl.innerHTML = '';
+    recentExpenses.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'history-item';
+      el.id = `item-${item.id}`;
+
+      const typeBadgeClass = item.expense_type === 'credit' ? 'badge-credit' : 'badge-debit';
+
+      el.innerHTML = `
+        <div class="history-row">
+          <div class="history-item-left">
+            <div class="history-item-top">
+              <div class="history-expense-title">${escapeHtml(item.expense || item.category || 'Expense')}</div>
+            </div>
+            <div class="history-item-meta">
+              <span>📅 ${item.expense_date}</span>
+              <span class="instruction-meta-badge ${typeBadgeClass}">${item.expense_type}</span>
+              ${item.category ? `<span class="instruction-meta-badge badge-category">${escapeHtml(item.category)}</span>` : ''}
+            </div>
+          </div>
+          <div class="history-item-right">
+            <div class="history-amount">${formatRupees(item.amount)}</div>
+            <button type="button" class="btn-icon-edit" data-id="${item.id}" title="Edit Expense">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="edit-panel" id="edit-panel-${item.id}">
+          <div class="form-grid">
+            <div class="full">
+              <label>Expense / Payee</label>
+              <input type="text" id="edit-expense-${item.id}" value="${escapeHtml(item.expense || '')}">
+            </div>
+            <div>
+              <label>Amount (₹)</label>
+              <input type="text" id="edit-amount-${item.id}" inputmode="decimal" value="${item.amount}">
+            </div>
+            <div>
+              <label>Date</label>
+              <input type="date" id="edit-date-${item.id}" value="${item.expense_date}">
+            </div>
+            <div>
+              <label>Category</label>
+              <select id="edit-cat-${item.id}">
+                ${getCategoryOptionsHTML(item.category)}
+              </select>
+            </div>
+            <div>
+              <label>Type</label>
+              <select id="edit-type-${item.id}">
+                <option value="debit" ${item.expense_type === 'debit' ? 'selected' : ''}>Debit</option>
+                <option value="credit" ${item.expense_type === 'credit' ? 'selected' : ''}>Credit</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button type="button" class="btn-save" data-id="${item.id}" style="flex:1;margin-top:0;">Save Changes</button>
+            <button type="button" class="btn-deny" data-id="${item.id}">Delete</button>
+          </div>
+        </div>
+      `;
+
+      historyListEl.appendChild(el);
+    });
+
+    // Attach listeners for Edit Icon, Save, Delete
+    document.querySelectorAll('.btn-icon-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const panel = document.getElementById(`edit-panel-${id}`);
+        if (panel) {
+          panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-save').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const expense = document.getElementById(`edit-expense-${id}`).value.trim();
+        const amount = parseFloat(document.getElementById(`edit-amount-${id}`).value);
+        const expense_date = document.getElementById(`edit-date-${id}`).value;
+        const category = document.getElementById(`edit-cat-${id}`).value || null;
+        const expense_type = document.getElementById(`edit-type-${id}`).value;
+
+        if (isNaN(amount) || amount <= 0) return showStatus('Enter a valid amount', true);
+        if (!expense_date) return showStatus('Select a valid date', true);
+
+        try {
+          await apiFetch(`/expenses/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ expense, amount, expense_date, category, expense_type })
+          });
+          showStatus(`Updated expense`);
+          loadHistory();
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-deny').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('Are you sure you want to delete this expense entry?')) return;
+        try {
+          await apiFetch(`/expenses/${id}`, { method: 'DELETE' });
+          showStatus('Deleted expense');
+          loadHistory();
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+  }
+
+  async function loadHistory() {
+    try {
+      const data = await apiFetch('/expenses/recent?limit=30');
+      recentExpenses = data.expenses || [];
+      renderHistory();
+    } catch (e) {
+      historyListEl.innerHTML = `<div class="empty-state">Could not load expenses: ${e.message}</div>`;
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, function(m) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+    });
+  }
+
+  loadCategories().then(loadHistory);
+</script>
+</body>
+</html>

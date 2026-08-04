@@ -178,6 +178,16 @@ class ExpenseReviewInput(BaseModel):
     status: str = "approved"
 
 
+class ExpenseUpdateInput(BaseModel):
+    amount: float | None = None
+    expense: str | None = None
+    category: str | None = None
+    expense_type: str | None = None
+    expense_date: str | None = None
+    note: str | None = None
+
+
+
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL")
 
@@ -375,6 +385,48 @@ def delete_expense(expense_id: str, _=Depends(verify_secret)):
     """Deny / delete an expense record."""
     result = supabase.table("expenses").delete().eq("id", expense_id).execute()
     return {"status": "ok"}
+
+
+@app.get("/expenses/recent")
+def get_recent_expenses(limit: int = 30, _=Depends(verify_secret)):
+    """Fetch the most recent N (default 30) expenses for editing."""
+    result = (
+        supabase.table("expenses_flat")
+        .select("*")
+        .order("expense_date", desc=True)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return {"expenses": result.data}
+
+
+@app.patch("/expenses/{expense_id}")
+def update_expense(expense_id: str, payload: ExpenseUpdateInput, _=Depends(verify_secret)):
+    """Update fields on an existing expense record."""
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+
+    if "category" in updates and updates["category"]:
+        cat_res = (
+            supabase.table("categories")
+            .select("name")
+            .ilike("name", updates["category"])
+            .limit(1)
+            .execute()
+        )
+        if cat_res.data:
+            updates["category"] = cat_res.data[0]["name"]
+
+    if "expense" in updates and updates["expense"]:
+        updates["expense"] = updates["expense"].strip()
+
+    result = supabase.table("expenses").update(updates).eq("id", expense_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"status": "ok", "updated": result.data[0]}
+
 
 
 @app.get("/categories")
