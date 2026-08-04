@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#B8B2A0">
+<title>Standing Instructions — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="index.html">Entry</a>
+  <a href="dashboard.html">Dashboard</a>
+  <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+  <a href="instructions.html" class="active">Instructions</a>
+  <a href="categories.html">Categories</a>
+</nav>
+
+<div class="receipt">
+  <header>
+    <div class="eyebrow">AUTOMATED STANDING ORDERS</div>
+    <h1 style="font-size:24px;">Instructions</h1>
+  </header>
+
+  <!-- Filter between Credit / Debit instructions -->
+  <div class="type-tabs" id="typeTabs">
+    <button type="button" class="type-tab active" data-type="all">All</button>
+    <button type="button" class="type-tab" data-type="debit">Debit</button>
+    <button type="button" class="type-tab" data-type="credit">Credit</button>
+  </div>
+
+  <!-- Add Standing Instruction Form -->
+  <div class="add-instruction-panel">
+    <div class="add-instruction-header">+ New Standing Instruction</div>
+    <div class="form-grid">
+      <div class="full">
+        <label for="newExpense">Expense Name</label>
+        <input type="text" id="newExpense" placeholder="e.g. Netflix, Car EMI, Rent">
+      </div>
+      <div>
+        <label for="newAmount">Amount (₹)</label>
+        <input type="text" id="newAmount" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div>
+        <label for="newDay">Day of Month (1-31)</label>
+        <input type="number" id="newDay" min="1" max="31" placeholder="5">
+      </div>
+      <div>
+        <label for="newCategory">Category</label>
+        <select id="newCategory">
+          <option value="">Loading categories…</option>
+        </select>
+      </div>
+      <div>
+        <label for="newType">Type</label>
+        <select id="newType">
+          <option value="debit">Debit</option>
+          <option value="credit">Credit</option>
+        </select>
+      </div>
+      <div class="full">
+        <label for="newEndDate">End Date (Optional, blank = indefinitely)</label>
+        <input type="date" id="newEndDate">
+      </div>
+    </div>
+    <button type="button" class="btn-add-primary" id="addInstructionBtn">Add Instruction</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <!-- List of Instructions in Card format -->
+  <div id="instructionsList">
+    <div class="empty-state">Loading instructions…</div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+  let allInstructions = [];
+  let availableCategories = [];
+  let currentFilter = 'all';
+
+  const statusEl = document.getElementById('status');
+  const instructionsListEl = document.getElementById('instructionsList');
+  const categorySelectEl = document.getElementById('newCategory');
+
+  function showStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'status error' : 'status';
+  }
+
+  async function loadCategories() {
+    try {
+      const data = await apiFetch('/categories');
+      availableCategories = data.categories.filter(c => c.is_active);
+      categorySelectEl.innerHTML = '<option value="">(Uncategorized)</option>';
+      availableCategories.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.name;
+        opt.textContent = c.name;
+        categorySelectEl.appendChild(opt);
+      });
+    } catch (e) {
+      categorySelectEl.innerHTML = '<option value="">Could not load categories</option>';
+    }
+  }
+
+  function getCategoryOptionsHTML(selectedCat) {
+    let html = `<option value="" ${!selectedCat ? 'selected' : ''}>(Uncategorized)</option>`;
+    availableCategories.forEach(c => {
+      const sel = c.name === selectedCat ? 'selected' : '';
+      html += `<option value="${c.name}" ${sel}>${c.name}</option>`;
+    });
+    return html;
+  }
+
+  function renderInstructions() {
+    const filtered = allInstructions.filter(inst => {
+      if (currentFilter === 'all') return true;
+      return inst.expense_type === currentFilter;
+    });
+
+    if (filtered.length === 0) {
+      instructionsListEl.innerHTML = `
+        <div class="empty-state">
+          ${allInstructions.length === 0 
+            ? 'No standing instructions yet — add one above' 
+            : `No ${currentFilter} standing instructions found`}
+        </div>`;
+      return;
+    }
+
+    instructionsListEl.innerHTML = '';
+    filtered.forEach(inst => {
+      const card = document.createElement('div');
+      card.className = `instruction-card ${inst.is_active ? '' : 'inactive'}`;
+      card.id = `card-${inst.id}`;
+
+      const endDateText = inst.end_date ? `Until ${inst.end_date}` : 'Recurs indefinitely';
+      const typeBadgeClass = inst.expense_type === 'credit' ? 'badge-credit' : 'badge-debit';
+
+      card.innerHTML = `
+        <div class="instruction-header">
+          <div class="title">${escapeHtml(inst.expense)}</div>
+          <div class="amt">${formatRupees(inst.amount)}</div>
+        </div>
+        <div class="instruction-meta">
+          <span class="instruction-meta-badge ${typeBadgeClass}">${inst.expense_type}</span>
+          ${inst.category ? `<span class="instruction-meta-badge badge-category">${escapeHtml(inst.category)}</span>` : ''}
+          ${!inst.is_active ? `<span class="instruction-meta-badge badge-inactive">Paused</span>` : ''}
+        </div>
+        <div class="instruction-schedule">
+          📅 Day <strong>${inst.day_of_month}</strong> of each month &bull; ${endDateText}
+        </div>
+        <div class="instruction-actions">
+          <div class="toggle-wrap">
+            <input type="checkbox" class="toggle toggle-active" data-id="${inst.id}" ${inst.is_active ? 'checked' : ''} id="active-${inst.id}">
+            <label for="active-${inst.id}" style="margin:0;cursor:pointer;">${inst.is_active ? 'Active' : 'Paused'}</label>
+          </div>
+          <button type="button" class="btn-edit" data-id="${inst.id}">Edit</button>
+          <button type="button" class="btn-deny" data-id="${inst.id}">Delete</button>
+        </div>
+
+        <div class="edit-panel" id="edit-panel-${inst.id}">
+          <div class="form-grid">
+            <div class="full">
+              <label>Expense Name</label>
+              <input type="text" id="edit-expense-${inst.id}" value="${escapeHtml(inst.expense)}">
+            </div>
+            <div>
+              <label>Amount (₹)</label>
+              <input type="text" id="edit-amount-${inst.id}" inputmode="decimal" value="${inst.amount}">
+            </div>
+            <div>
+              <label>Day of Month (1-31)</label>
+              <input type="number" min="1" max="31" id="edit-day-${inst.id}" value="${inst.day_of_month}">
+            </div>
+            <div>
+              <label>Category</label>
+              <select id="edit-cat-${inst.id}">
+                ${getCategoryOptionsHTML(inst.category)}
+              </select>
+            </div>
+            <div>
+              <label>Type</label>
+              <select id="edit-type-${inst.id}">
+                <option value="debit" ${inst.expense_type === 'debit' ? 'selected' : ''}>Debit</option>
+                <option value="credit" ${inst.expense_type === 'credit' ? 'selected' : ''}>Credit</option>
+              </select>
+            </div>
+            <div class="full">
+              <label>End Date (Optional)</label>
+              <input type="date" id="edit-enddate-${inst.id}" value="${inst.end_date || ''}">
+            </div>
+          </div>
+          <button type="button" class="btn-save" data-id="${inst.id}">Save Changes</button>
+        </div>
+      `;
+
+      instructionsListEl.appendChild(card);
+    });
+
+    // Attach event listeners for card actions
+    document.querySelectorAll('.toggle-active').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const id = chk.dataset.id;
+        try {
+          await apiFetch(`/standing-instructions/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: chk.checked })
+          });
+          showStatus(`${chk.checked ? 'Activated' : 'Paused'} instruction`);
+          loadInstructions();
+        } catch (e) {
+          showStatus(e.message, true);
+          chk.checked = !chk.checked;
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const panel = document.getElementById(`edit-panel-${id}`);
+        if (panel) {
+          panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-save').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const expense = document.getElementById(`edit-expense-${id}`).value.trim();
+        const amount = parseFloat(document.getElementById(`edit-amount-${id}`).value);
+        const day_of_month = parseInt(document.getElementById(`edit-day-${id}`).value, 10);
+        const category = document.getElementById(`edit-cat-${id}`).value || null;
+        const expense_type = document.getElementById(`edit-type-${id}`).value;
+        const end_date = document.getElementById(`edit-enddate-${id}`).value || null;
+
+        if (!expense) return showStatus('Enter expense name', true);
+        if (isNaN(amount) || amount <= 0) return showStatus('Enter valid amount', true);
+        if (isNaN(day_of_month) || day_of_month < 1 || day_of_month > 31) return showStatus('Day must be 1-31', true);
+
+        try {
+          await apiFetch(`/standing-instructions/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ expense, amount, day_of_month, category, expense_type, end_date })
+          });
+          showStatus(`Updated '${expense}'`);
+          loadInstructions();
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-deny').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const inst = allInstructions.find(i => i.id === id);
+        const name = inst ? inst.expense : 'this instruction';
+        if (!confirm(`Are you sure you want to delete '${name}'?`)) return;
+
+        try {
+          await apiFetch(`/standing-instructions/${id}`, { method: 'DELETE' });
+          showStatus(`Deleted '${name}'`);
+          loadInstructions();
+        } catch (e) {
+          showStatus(e.message, true);
+        }
+      });
+    });
+  }
+
+  async function loadInstructions() {
+    try {
+      const data = await apiFetch('/standing-instructions');
+      allInstructions = data.instructions || [];
+      renderInstructions();
+    } catch (e) {
+      instructionsListEl.innerHTML = `<div class="empty-state">Could not load instructions: ${e.message}</div>`;
+    }
+  }
+
+  // Type filter tab switching (Debit / Credit / All)
+  document.querySelectorAll('#typeTabs .type-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#typeTabs .type-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentFilter = tab.dataset.type;
+      renderInstructions();
+    });
+  });
+
+  // Add instruction submission
+  document.getElementById('addInstructionBtn').addEventListener('click', async () => {
+    const expense = document.getElementById('newExpense').value.trim();
+    const amount = parseFloat(document.getElementById('newAmount').value);
+    const day_of_month = parseInt(document.getElementById('newDay').value, 10);
+    const category = document.getElementById('newCategory').value || null;
+    const expense_type = document.getElementById('newType').value;
+    const end_date = document.getElementById('newEndDate').value || null;
+
+    if (!expense) return showStatus('Enter an expense name', true);
+    if (isNaN(amount) || amount <= 0) return showStatus('Enter a valid amount', true);
+    if (isNaN(day_of_month) || day_of_month < 1 || day_of_month > 31) return showStatus('Day of month must be between 1 and 31', true);
+
+    try {
+      await apiFetch('/standing-instructions', {
+        method: 'POST',
+        body: JSON.stringify({ expense, amount, day_of_month, category, expense_type, end_date })
+      });
+      document.getElementById('newExpense').value = '';
+      document.getElementById('newAmount').value = '';
+      document.getElementById('newDay').value = '';
+      document.getElementById('newEndDate').value = '';
+      showStatus(`Added '${expense}'`);
+      loadInstructions();
+    } catch (e) {
+      showStatus(e.message, true);
+    }
+  });
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, function(m) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+    });
+  }
+
+  loadCategories();
+  loadInstructions();
+</script>
+</body>
+</html>

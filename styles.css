@@ -334,14 +334,14 @@ select:focus {
 
 /* ---- Category bars (dashboard) ---- */
 .bar-row {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .bar-row .bar-label {
   display: flex;
   justify-content: space-between;
   font-size: 12.5px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .bar-row .bar-label .amt {
@@ -349,20 +349,61 @@ select:focus {
 }
 
 .bar-track {
-  height: 8px;
+  height: 10px;
   background: var(--paper-line);
   position: relative;
   overflow: hidden;
+  display: flex;
+  border-radius: 2px;
 }
 
-.bar-fill {
+.bar-fill-debit {
+  height: 100%;
+  background: var(--debit);
+  transition: width 0.3s ease;
+}
+
+.bar-fill-credit {
   height: 100%;
   background: var(--stamp);
+  transition: width 0.3s ease;
 }
 
-.bar-fill.fixed {
-  background: var(--ink-faint);
+.bar-split-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 3px;
 }
+
+.split-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-box {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  border-radius: 1px;
+}
+
+.legend-debit { background: var(--debit); }
+.legend-credit { background: var(--stamp); }
+
 
 /* ---- Category management table ---- */
 .cat-row {
@@ -599,4 +640,177 @@ select:focus {
   margin-top: 12px;
   min-height: 16px;
   font-weight: 700;
+}
+
+/* ---- Standing Instructions Page Styles ---- */
+.type-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.type-tab {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--ink-faint);
+  border: 1.5px solid var(--paper-line);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: 1;
+  text-align: center;
+}
+
+.type-tab.active {
+  background: var(--stamp);
+  border-color: var(--stamp);
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.instruction-card {
+  border: 1.5px solid var(--paper-line);
+  padding: 14px;
+  margin-bottom: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  transition: border-color 0.15s ease;
+}
+
+.instruction-card.inactive {
+  opacity: 0.65;
+  background: rgba(230, 225, 210, 0.3);
+}
+
+.instruction-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.instruction-header .title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.instruction-header .amt {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.instruction-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-bottom: 8px;
+}
+
+.instruction-meta-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-debit {
+  background: #f4dcd6;
+  color: var(--debit);
+}
+
+.badge-credit {
+  background: #d6e8e3;
+  color: var(--stamp);
+}
+
+.badge-category {
+  background: var(--paper-line);
+  color: var(--ink);
+}
+
+.badge-inactive {
+  background: #e2dfd5;
+  color: #777;
+}
+
+.instruction-schedule {
+  font-size: 12px;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.instruction-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-right: auto;
+}
+
+.add-instruction-panel {
+  border: 1.5px dashed var(--stamp);
+  padding: 14px;
+  margin-bottom: 20px;
+  background: rgba(31, 92, 79, 0.04);
+}
+
+.add-instruction-header {
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--stamp);
+  margin-bottom: 12px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.form-grid label {
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.btn-add-primary {
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  background: var(--stamp);
+  color: var(--paper);
+  border: none;
+  padding: 10px 16px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.btn-add-primary:active {
+  transform: scale(0.98);
 }

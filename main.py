@@ -14,7 +14,8 @@ the Procfile / requirements.txt.
 
 import os
 import json
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
 import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends
@@ -74,6 +75,26 @@ class CategoryInput(BaseModel):
 
 class CategoryUpdateInput(BaseModel):
     type: str | None = None
+    is_active: bool | None = None
+
+
+class StandingInstructionInput(BaseModel):
+    expense: str
+    amount: float
+    category: str | None = None
+    expense_type: str = "debit"  # "debit" | "credit"
+    day_of_month: int  # 1 to 31
+    end_date: str | None = None  # "YYYY-MM-DD" or None
+    is_active: bool = True
+
+
+class StandingInstructionUpdateInput(BaseModel):
+    expense: str | None = None
+    amount: float | None = None
+    category: str | None = None
+    expense_type: str | None = None
+    day_of_month: int | None = None
+    end_date: str | None = None
     is_active: bool | None = None
 
 
@@ -393,6 +414,93 @@ def update_category(name: str, payload: CategoryUpdateInput, _=Depends(verify_se
     return {"status": "ok", "category": result.data[0]}
 
 
+@app.get("/standing-instructions")
+def list_standing_instructions(expense_type: str | None = None, _=Depends(verify_secret)):
+    query = supabase.table("standing_instructions").select("*").order("day_of_month")
+    if expense_type:
+        query = query.eq("expense_type", expense_type)
+    result = query.execute()
+    return {"instructions": result.data}
+
+
+@app.post("/standing-instructions")
+def create_standing_instruction(payload: StandingInstructionInput, _=Depends(verify_secret)):
+    if payload.day_of_month < 1 or payload.day_of_month > 31:
+        raise HTTPException(status_code=422, detail="day_of_month must be between 1 and 31")
+    if payload.expense_type not in ("debit", "credit"):
+        raise HTTPException(status_code=422, detail="expense_type must be 'debit' or 'credit'")
+
+    category_name = None
+    if payload.category:
+        cat_res = (
+            supabase.table("categories")
+            .select("name")
+            .ilike("name", payload.category)
+            .limit(1)
+            .execute()
+        )
+        if cat_res.data:
+            category_name = cat_res.data[0]["name"]
+        else:
+            category_name = payload.category
+
+    end_date_val = payload.end_date.strip() if payload.end_date and payload.end_date.strip() else None
+
+    row = {
+        "expense": payload.expense.strip(),
+        "amount": payload.amount,
+        "category": category_name,
+        "expense_type": payload.expense_type,
+        "day_of_month": payload.day_of_month,
+        "end_date": end_date_val,
+        "is_active": payload.is_active,
+    }
+    result = supabase.table("standing_instructions").insert(row).execute()
+    return {"status": "ok", "instruction": result.data[0] if result.data else None}
+
+
+@app.patch("/standing-instructions/{instruction_id}")
+def update_standing_instruction(instruction_id: str, payload: StandingInstructionUpdateInput, _=Depends(verify_secret)):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+
+    if "day_of_month" in updates and (updates["day_of_month"] < 1 or updates["day_of_month"] > 31):
+        raise HTTPException(status_code=422, detail="day_of_month must be between 1 and 31")
+    if "expense_type" in updates and updates["expense_type"] not in ("debit", "credit"):
+        raise HTTPException(status_code=422, detail="expense_type must be 'debit' or 'credit'")
+
+    if "category" in updates and updates["category"]:
+        cat_res = (
+            supabase.table("categories")
+            .select("name")
+            .ilike("name", updates["category"])
+            .limit(1)
+            .execute()
+        )
+        if cat_res.data:
+            updates["category"] = cat_res.data[0]["name"]
+
+    if "end_date" in updates:
+        end_date_str = updates["end_date"]
+        updates["end_date"] = end_date_str.strip() if end_date_str and isinstance(end_date_str, str) and end_date_str.strip() else None
+
+    if "expense" in updates and updates["expense"]:
+        updates["expense"] = updates["expense"].strip()
+
+    result = supabase.table("standing_instructions").update(updates).eq("id", instruction_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Standing instruction not found")
+    return {"status": "ok", "instruction": result.data[0]}
+
+
+@app.delete("/standing-instructions/{instruction_id}")
+def delete_standing_instruction(instruction_id: str, _=Depends(verify_secret)):
+    result = supabase.table("standing_instructions").delete().eq("id", instruction_id).execute()
+    return {"status": "ok"}
+
+
+
 @app.get("/summary/entry-page")
 def summary_entry_page(_=Depends(verify_secret)):
     """Quick stats for the entry page: today's total, this month's total,
@@ -436,37 +544,100 @@ def summary_entry_page(_=Depends(verify_secret)):
 
 @app.get("/summary/dashboard")
 def summary_dashboard(_=Depends(verify_secret)):
-    """Category-wise breakdown for the current month, for the dashboard page."""
+    """Category-wise breakdown with credit/debit split, last month MTD comparison,
+    and current credit card billing cycle total."""
     today = date.today()
     month_start = today.replace(day=1)
 
-    rows = (
+    # 1. Last month till date calculation
+    last_month_end_prev = month_start - timedelta(days=1)
+    last_month_start = last_month_end_prev.replace(day=1)
+    max_days_last_month = calendar.monthrange(last_month_start.year, last_month_start.month)[1]
+    target_day = min(today.day, max_days_last_month)
+    last_month_till_date_end = date(last_month_start.year, last_month_start.month, target_day)
+
+    # 2. Credit card billing cycle calculation (16th to 15th)
+    if today.day <= 15:
+        cycle_start = (month_start - timedelta(days=1)).replace(day=16)
+        cycle_end = month_start.replace(day=15)
+    else:
+        cycle_start = month_start.replace(day=16)
+        if month_start.month == 12:
+            next_month_start = date(month_start.year + 1, 1, 1)
+        else:
+            next_month_start = date(month_start.year, month_start.month + 1, 1)
+        cycle_end = next_month_start.replace(day=15)
+
+    # Fetch this month's rows
+    this_month_rows = (
         supabase.table("expenses_flat")
-        .select("amount, category, category_type")
+        .select("amount, category, category_type, expense_type")
         .gte("expense_date", str(month_start))
         .lte("expense_date", str(today))
         .neq("status", "pending_review")
         .execute()
     )
 
+    # Fetch last month till date rows
+    last_month_rows = (
+        supabase.table("expenses_flat")
+        .select("amount")
+        .gte("expense_date", str(last_month_start))
+        .lte("expense_date", str(last_month_till_date_end))
+        .neq("status", "pending_review")
+        .execute()
+    )
+    last_month_mtd_total = sum(r["amount"] for r in last_month_rows.data)
+
+    # Fetch current credit cycle rows
+    credit_cycle_rows = (
+        supabase.table("expenses_flat")
+        .select("amount")
+        .eq("expense_type", "credit")
+        .gte("expense_date", str(cycle_start))
+        .lte("expense_date", str(cycle_end))
+        .neq("status", "pending_review")
+        .execute()
+    )
+    credit_cycle_total = sum(r["amount"] for r in credit_cycle_rows.data)
+
     by_category: dict[str, dict] = {}
-    for r in rows.data:
+    for r in this_month_rows.data:
         cat = r["category"]
-        entry = by_category.setdefault(cat, {"category": cat, "type": r["category_type"], "total": 0, "count": 0})
+        etype = r.get("expense_type", "debit")
+        entry = by_category.setdefault(cat, {
+            "category": cat,
+            "type": r["category_type"],
+            "total": 0.0,
+            "debit_total": 0.0,
+            "credit_total": 0.0,
+            "count": 0
+        })
         entry["total"] += r["amount"]
+        if etype == "credit":
+            entry["credit_total"] += r["amount"]
+        else:
+            entry["debit_total"] += r["amount"]
         entry["count"] += 1
 
     categories = sorted(by_category.values(), key=lambda c: c["total"], reverse=True)
     for c in categories:
         c["total"] = round(c["total"], 2)
+        c["debit_total"] = round(c["debit_total"], 2)
+        c["credit_total"] = round(c["credit_total"], 2)
 
     month_total = round(sum(c["total"] for c in categories), 2)
 
     return {
-        "month": month_start.strftime("%Y-%m"),
+        "month": month_start.strftime("%B %Y"),
         "month_total": month_total,
+        "last_month_mtd_total": round(last_month_mtd_total, 2),
+        "last_month_mtd_range": f"{last_month_start.strftime('%b 1')} – {last_month_till_date_end.strftime('%b %d')}",
+        "credit_cycle_total": round(credit_cycle_total, 2),
+        "credit_cycle_range": f"{cycle_start.strftime('%b 16')} – {cycle_end.strftime('%b 15')}",
         "categories": categories,
     }
+
 
 
 @app.get("/health")
