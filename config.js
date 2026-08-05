@@ -1,6 +1,6 @@
 // ---- Configuration: same values used across all pages ----
 const CONFIG = {
-  apiUrl: "https://web-production-7c3e8.up.railway.app",
+  apiUrl: "https://smartexpensetracker-245439889776.asia-south1.run.app",
 };
 
 function getSecret() {
