@@ -37,7 +37,7 @@ flowchart TD
     end
 
     subgraph Notification ["📧 Alerting & Workflow"]
-        C3 -->|Flagged (<80% conf, 'Others', obscure UPI)| F1["📧 Resend API"]
+        C3 -->|"Flagged (Low confidence, Others, obscure UPI)"| F1["📧 Resend API"]
         F1 -->|HTML Email Alert| F2["📬 User Inbox"]
         F2 -->|Click Review Link| G1["⚠️ Conflicts Queue (conflicts.html)"]
         G1 -->|Approve / Edit / Deny| C1
