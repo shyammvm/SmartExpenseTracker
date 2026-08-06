@@ -277,9 +277,8 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
         history_query = (
             supabase.table("expenses")
             .select("category")
-            .ilike("expense", merchant_name)
+            .ilike("expense", f"%{merchant_name}%")
             .eq("status", "approved")
-            .neq("category", "Others")
             .order("created_at", desc=True)
             .limit(1)
             .execute()
