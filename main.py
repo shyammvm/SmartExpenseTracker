@@ -287,6 +287,7 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
             learned_category = history_query.data[0]["category"]
             if learned_category:
                 category_name = learned_category
+                parsed["category"] = learned_category
                 needs_review = False
                 review_reason = None
                 is_others = False
