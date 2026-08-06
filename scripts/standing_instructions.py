@@ -12,12 +12,14 @@ same Railway/Cloud Run service as the FastAPI app.
 
 import os
 import calendar
-from datetime import date
+from datetime import datetime, date, timezone, timedelta
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
 load_dotenv()
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -40,7 +42,7 @@ def is_due_today(instruction: dict, today: date) -> bool:
 
 
 def main():
-    today = date.today()
+    today = datetime.now(IST).date()
 
     result = supabase.table("standing_instructions").select("*").eq("is_active", True).execute()
     due_today = [i for i in result.data if is_due_today(i, today)]

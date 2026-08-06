@@ -15,7 +15,7 @@ the Procfile / requirements.txt.
 import os
 import json
 import calendar
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends
@@ -23,6 +23,13 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from google import genai
 from google.genai import types
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def get_ist_today() -> date:
+    return datetime.now(IST).date()
+
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]  # backend only, bypasses RLS
@@ -279,7 +286,7 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
         "raw_text": payload.text,
         "expense_type": parsed.get("expense_type", "debit"),
         "ai_confidence": parsed.get("confidence"),
-        "expense_date": str(date.today()),
+        "expense_date": str(get_ist_today()),
         "status": status,
         "needs_review": needs_review,
         "review_reason": review_reason,
@@ -327,7 +334,7 @@ def add_expense(payload: ManualExpenseInput, _=Depends(verify_secret)):
         "note": payload.note,
         "source": "manual",
         "expense_type": payload.expense_type,
-        "expense_date": payload.expense_date or str(date.today()),
+        "expense_date": payload.expense_date or str(get_ist_today()),
         "status": "approved",
         "needs_review": False,
     }
@@ -558,7 +565,7 @@ def summary_entry_page(_=Depends(verify_secret)):
     """Quick stats for the entry page: today's total, this month's total,
     fixed vs variable split, and average daily variable spend so far this
     month (a rough day-to-day burn-rate indicator)."""
-    today = date.today()
+    today = get_ist_today()
     month_start = today.replace(day=1)
 
     today_rows = (
@@ -598,7 +605,7 @@ def summary_entry_page(_=Depends(verify_secret)):
 def summary_dashboard(_=Depends(verify_secret)):
     """Category-wise breakdown with credit/debit split, last month MTD comparison,
     and current credit card billing cycle total."""
-    today = date.today()
+    today = get_ist_today()
     month_start = today.replace(day=1)
 
     # 1. Last month till date calculation

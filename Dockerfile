@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Prevent Python from writing pyc files and buffer outputs
 ENV PYTHONUNBUFFERED=1
+ENV TZ="Asia/Kolkata"
 
 WORKDIR /app
 

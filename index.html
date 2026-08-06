@@ -142,7 +142,7 @@
   loadCategories();
   loadSummary();
 
-  document.getElementById('date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('date').value = new Date().toLocaleDateString('en-CA');
 
   let selectedType = 'debit';
   document.querySelectorAll('#typeChips .chip').forEach(btn => {
