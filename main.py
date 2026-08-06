@@ -268,9 +268,31 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     category_lower = (category_name or "").lower()
     is_others = category_lower in ("others", "other")
     needs_review = parsed.get("needs_review", False) or is_others or (parsed.get("confidence", 1.0) < 0.8)
-
     review_reason = parsed.get("review_reason")
-    if is_others and not review_reason:
+
+    # 2. History Lookup BEFORE inserting into DB:
+    # If Gemini flagged needs_review (or category is "Others"), check past approved merchant history
+    merchant_name = (parsed.get("expense") or "").strip()
+    if needs_review and merchant_name:
+        history_query = (
+            supabase.table("expenses")
+            .select("category")
+            .ilike("expense", merchant_name)
+            .eq("status", "approved")
+            .neq("category", "Others")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if history_query.data:
+            learned_category = history_query.data[0]["category"]
+            if learned_category:
+                category_name = learned_category
+                needs_review = False
+                review_reason = None
+                is_others = False
+
+    if is_others and needs_review and not review_reason:
         review_reason = "Categorized as Others"
     elif needs_review and not review_reason:
         review_reason = "Obscure merchant or low AI confidence"
