@@ -14,6 +14,7 @@ the Procfile / requirements.txt.
 
 import os
 import json
+import time
 import calendar
 from datetime import datetime, date, timedelta, timezone
 
@@ -22,7 +23,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 from supabase import create_client, Client
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -116,7 +117,9 @@ def get_category_names() -> list[str]:
 
 
 def parse_with_gemini(text: str, category_names: list[str]) -> dict:
-    """Ask Gemini Flash to extract structured expense fields from raw text."""
+    """Ask Gemini Flash to extract structured expense fields from raw text.
+    Includes retries with exponential backoff and fallback models if Gemini is overloaded (503 / 429).
+    """
 
     system_prompt = f"""You extract structured expense data from raw text, which is
 either a message the user typed themselves, or a bank transaction SMS.
@@ -146,35 +149,60 @@ review_reason: A brief string explaining why needs_review was set to true (e.g. 
 
 If the text does not appear to describe an outgoing expense, set amount to null."""
 
-    # response_schema forces Gemini to return well-formed JSON matching this
-    # shape, so there's no markdown-fence stripping or malformed-JSON risk.
-    response = gemini.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=text,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            response_mime_type="application/json",
-            response_schema={
-                "type": "object",
-                "properties": {
-                    "amount": {"type": "number", "nullable": True},
-                    "expense": {"type": "string", "nullable": True},
-                    "category": {"type": "string"},
-                    "note": {"type": "string", "nullable": True},
-                    "expense_type": {"type": "string", "enum": ["debit", "credit"]},
-                    "confidence": {"type": "number"},
-                    "needs_review": {"type": "boolean"},
-                    "review_reason": {"type": "string", "nullable": True},
-                },
-                "required": ["category", "expense_type", "confidence", "needs_review"],
-            },
-        ),
-    )
+    # Models to attempt in sequence if primary model is unavailable or rate-limited
+    models_to_try = [GEMINI_MODEL]
+    for alt in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        if alt not in models_to_try:
+            models_to_try.append(alt)
 
-    try:
-        return json.loads(response.text)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail=f"Could not parse AI response: {response.text}")
+    last_error = None
+
+    for model_name in models_to_try:
+        # Retry up to 3 times per model with exponential backoff (1s, 2s, 4s)
+        for attempt in range(3):
+            try:
+                response = gemini.models.generate_content(
+                    model=model_name,
+                    contents=text,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        response_mime_type="application/json",
+                        response_schema={
+                            "type": "object",
+                            "properties": {
+                                "amount": {"type": "number", "nullable": True},
+                                "expense": {"type": "string", "nullable": True},
+                                "category": {"type": "string"},
+                                "note": {"type": "string", "nullable": True},
+                                "expense_type": {"type": "string", "enum": ["debit", "credit"]},
+                                "confidence": {"type": "number"},
+                                "needs_review": {"type": "boolean"},
+                                "review_reason": {"type": "string", "nullable": True},
+                            },
+                            "required": ["category", "expense_type", "confidence", "needs_review"],
+                        },
+                    ),
+                )
+                try:
+                    return json.loads(response.text)
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=422, detail=f"Could not parse AI response: {response.text}")
+
+            except (errors.APIError, errors.ServerError) as e:
+                last_error = e
+                # Pause before retry (exponential backoff: 1s, 2s, 4s)
+                time.sleep(2 ** attempt)
+            except HTTPException:
+                raise
+            except Exception as e:
+                last_error = e
+                break
+
+    # If all models and retries fail due to 503 / high demand:
+    error_detail = "Gemini service is currently experiencing high demand. Please try again in a few seconds."
+    if last_error:
+        error_detail += f" ({last_error})"
+    raise HTTPException(status_code=503, detail=error_detail)
 
 
 class ExpenseReviewInput(BaseModel):
@@ -246,91 +274,129 @@ def send_conflict_email(amount: float, expense: str | None, category: str | None
         print(f"Error sending Resend conflict notification email: {e}")
 
 
+EMPTY_PARSED_RESPONSE = {
+    "amount": None,
+    "expense": None,
+    "category": None,
+    "note": None,
+    "expense_type": "debit",
+    "confidence": 0.0,
+    "needs_review": False,
+    "review_reason": None,
+}
+
+
 @app.post("/parse-expense")
 def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
-    category_names = get_category_names()
-    parsed = parse_with_gemini(payload.text, category_names)
+    try:
+        category_names = get_category_names()
+        parsed = parse_with_gemini(payload.text, category_names)
 
-    if parsed.get("amount") is None:
-        raise HTTPException(status_code=422, detail="Text did not appear to describe an expense")
+        if not isinstance(parsed, dict) or parsed.get("amount") is None:
+            return {
+                "status": "error",
+                "error": "Text did not appear to describe an outgoing expense",
+                "parsed": {**EMPTY_PARSED_RESPONSE, **(parsed if isinstance(parsed, dict) else {})},
+                "needs_review": False,
+                "inserted": None,
+            }
 
-    # confirm the category exists (case-insensitive) and use its canonical
-    # spelling -- no separate id lookup needed now that category is the key
-    cat_result = (
-        supabase.table("categories")
-        .select("name")
-        .ilike("name", parsed["category"])
-        .limit(1)
-        .execute()
-    )
-    category_name = cat_result.data[0]["name"] if cat_result.data else parsed["category"]
-
-    category_lower = (category_name or "").lower()
-    is_others = category_lower in ("others", "other")
-    needs_review = parsed.get("needs_review", False) or is_others or (parsed.get("confidence", 1.0) < 0.8)
-    review_reason = parsed.get("review_reason")
-
-    # 2. History Lookup BEFORE inserting into DB:
-    # If Gemini flagged needs_review (or category is "Others"), check past approved merchant history
-    merchant_name = (parsed.get("expense") or "").strip()
-    if needs_review and merchant_name:
-        history_query = (
-            supabase.table("expenses")
-            .select("category")
-            .ilike("expense", f"%{merchant_name}%")
-            .eq("status", "approved")
-            .order("created_at", desc=True)
+        # confirm the category exists (case-insensitive) and use its canonical spelling
+        cat_result = (
+            supabase.table("categories")
+            .select("name")
+            .ilike("name", parsed.get("category", ""))
             .limit(1)
             .execute()
         )
-        if history_query.data:
-            learned_category = history_query.data[0]["category"]
-            if learned_category:
-                category_name = learned_category
-                parsed["category"] = learned_category
-                needs_review = False
-                review_reason = None
-                is_others = False
+        category_name = cat_result.data[0]["name"] if cat_result.data else parsed.get("category", "Others")
 
-    if is_others and needs_review and not review_reason:
-        review_reason = "Categorized as Others"
-    elif needs_review and not review_reason:
-        review_reason = "Obscure merchant or low AI confidence"
+        category_lower = (category_name or "").lower()
+        is_others = category_lower in ("others", "other")
+        needs_review = parsed.get("needs_review", False) or is_others or (parsed.get("confidence", 1.0) < 0.8)
+        review_reason = parsed.get("review_reason")
 
-    status = "pending_review" if needs_review else "approved"
+        # History Lookup BEFORE inserting into DB:
+        merchant_name = (parsed.get("expense") or "").strip()
+        if needs_review and merchant_name:
+            history_query = (
+                supabase.table("expenses")
+                .select("category")
+                .ilike("expense", f"%{merchant_name}%")
+                .eq("status", "approved")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if history_query.data:
+                learned_category = history_query.data[0]["category"]
+                if learned_category:
+                    category_name = learned_category
+                    parsed["category"] = learned_category
+                    needs_review = False
+                    review_reason = None
+                    is_others = False
 
-    row = {
-        "amount": parsed["amount"],
-        "expense": parsed.get("expense"),
-        "category": category_name,
-        "note": parsed.get("note"),
-        "source": payload.source,
-        "raw_text": payload.text,
-        "expense_type": parsed.get("expense_type", "debit"),
-        "ai_confidence": parsed.get("confidence"),
-        "expense_date": str(get_ist_today()),
-        "status": status,
-        "needs_review": needs_review,
-        "review_reason": review_reason,
-    }
+        if is_others and needs_review and not review_reason:
+            review_reason = "Categorized as Others"
+        elif needs_review and not review_reason:
+            review_reason = "Obscure merchant or low AI confidence"
 
-    insert_result = supabase.table("expenses").insert(row).execute()
+        status = "pending_review" if needs_review else "approved"
 
-    if needs_review:
-        send_conflict_email(
-            amount=parsed["amount"],
-            expense=parsed.get("expense"),
-            category=category_name,
-            reason=review_reason,
-            raw_text=payload.text,
-        )
+        row = {
+            "amount": parsed["amount"],
+            "expense": parsed.get("expense"),
+            "category": category_name,
+            "note": parsed.get("note"),
+            "source": payload.source,
+            "raw_text": payload.text,
+            "expense_type": parsed.get("expense_type", "debit"),
+            "ai_confidence": parsed.get("confidence"),
+            "expense_date": str(get_ist_today()),
+            "status": status,
+            "needs_review": needs_review,
+            "review_reason": review_reason,
+        }
 
-    return {
-        "status": "ok",
-        "parsed": parsed,
-        "needs_review": needs_review,
-        "inserted": insert_result.data[0] if insert_result.data else None,
-    }
+        insert_result = supabase.table("expenses").insert(row).execute()
+
+        if needs_review:
+            send_conflict_email(
+                amount=parsed["amount"],
+                expense=parsed.get("expense"),
+                category=category_name,
+                reason=review_reason,
+                raw_text=payload.text,
+            )
+
+        full_parsed = {**EMPTY_PARSED_RESPONSE, **parsed}
+
+        return {
+            "status": "ok",
+            "error": None,
+            "parsed": full_parsed,
+            "needs_review": needs_review,
+            "inserted": insert_result.data[0] if insert_result.data else None,
+        }
+
+    except HTTPException as he:
+        error_msg = he.detail if isinstance(he.detail, str) else str(he.detail)
+        return {
+            "status": "error",
+            "error": error_msg,
+            "parsed": EMPTY_PARSED_RESPONSE,
+            "needs_review": False,
+            "inserted": None,
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+            "parsed": EMPTY_PARSED_RESPONSE,
+            "needs_review": False,
+            "inserted": None,
+        }
 
 
 @app.post("/add-expense")
