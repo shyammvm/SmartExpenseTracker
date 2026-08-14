@@ -28,6 +28,22 @@
     <h1 style="font-size:24px;">Instructions</h1>
   </header>
 
+  <!-- Summary Cards: Total, Debit, Credit -->
+  <div class="stat-grid" style="margin-bottom:20px;">
+    <div class="stat-card wide">
+      <div class="label">Total</div>
+      <div class="value" id="summaryTotal" style="font-size:26px;">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Debit</div>
+      <div class="value" id="summaryDebit" style="font-size:18px;color:var(--debit);">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Credit</div>
+      <div class="value" id="summaryCredit" style="font-size:18px;color:var(--stamp);">—</div>
+    </div>
+  </div>
+
   <!-- Filter between Credit / Debit instructions -->
   <div class="type-tabs" id="typeTabs">
     <button type="button" class="type-tab active" data-type="all">All</button>
@@ -120,7 +136,28 @@
     return html;
   }
 
+  function updateSummary() {
+    const activeInsts = allInstructions.filter(inst => inst.is_active !== false);
+    const debitTotal = activeInsts
+      .filter(inst => inst.expense_type === 'debit')
+      .reduce((sum, inst) => sum + (parseFloat(inst.amount) || 0), 0);
+    const creditTotal = activeInsts
+      .filter(inst => inst.expense_type === 'credit')
+      .reduce((sum, inst) => sum + (parseFloat(inst.amount) || 0), 0);
+    const total = debitTotal + creditTotal;
+
+    const summaryTotalEl = document.getElementById('summaryTotal');
+    const summaryDebitEl = document.getElementById('summaryDebit');
+    const summaryCreditEl = document.getElementById('summaryCredit');
+
+    if (summaryTotalEl) summaryTotalEl.textContent = formatRupees(total);
+    if (summaryDebitEl) summaryDebitEl.textContent = formatRupees(debitTotal);
+    if (summaryCreditEl) summaryCreditEl.textContent = formatRupees(creditTotal);
+  }
+
   function renderInstructions() {
+    updateSummary();
+
     const filtered = allInstructions.filter(inst => {
       if (currentFilter === 'all') return true;
       return inst.expense_type === currentFilter;
