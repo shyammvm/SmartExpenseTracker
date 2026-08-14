@@ -43,9 +43,10 @@ flowchart TD
         G1 -->|Approve / Edit / Deny| C1
     end
 
-    subgraph Analytics ["📈 Analytics, Reporting & BI Pipelines"]
+    subgraph Analytics ["📈 Analytics, Reporting & AI Insights"]
         E1 -->|PostgreSQL Connector| H1["📊 Looker Studio (Data Studio)"]
         E1 -->|SQL Reporting Views| H2["📑 Google Sheets Export & Sync"]
+        E1 -->|MCP Connection| H4["💬 ChatGPT (AI Queries & Insights)"]
         
         H2 -->|Automated Data Sync| H3["📈 Financial Dashboards & Trends"]
         E1 -->|Aggregated Endpoints| B2
@@ -56,6 +57,7 @@ flowchart TD
     style E1 fill:#3ECF8E,stroke:#333,stroke-width:2px,color:#fff
     style H1 fill:#EA4335,stroke:#333,stroke-width:2px,color:#fff
     style H2 fill:#FBBC05,stroke:#333,stroke-width:2px,color:#fff
+    style H4 fill:#10A37F,stroke:#333,stroke-width:2px,color:#fff
 ```
 
 ---
@@ -98,12 +100,13 @@ flowchart TD
 
 ---
 
-### 📊 BI Dashboards: Looker Studio & Google Sheets Export
+### 📊 BI Dashboards & Conversational AI: Looker Studio, Google Sheets & ChatGPT MCP
 - **Google Looker Studio (Data Studio)**: Connected directly to Supabase PostgreSQL using pre-built SQL analytical views:
   - `monthly_category_summary`: Categorical spend breakdown.
   - `monthly_fixed_vs_variable`: Fixed vs. variable expense ratios.
   - `expenses_flat`: Formatted transaction log optimized for Looker charts.
 - **Google Sheets Automated Export**: Syncs raw transaction logs and summary metrics directly into Google Sheets for custom formulas, scenario planning, and offline record keeping.
+- **ChatGPT MCP Integration**: Connected Supabase PostgreSQL directly to ChatGPT via Model Context Protocol (MCP), enabling interactive natural language queries, ad-hoc financial insights, and conversational expense analysis.
 
 ---
 
@@ -117,4 +120,4 @@ flowchart TD
 - **Notifications**: Resend Email API
 - **Mobile Integration**: Apple Shortcuts, Widgy Widget (iOS)
 - **Frontend WebApp**: Mobile-first PWA (HTML5, Vanilla CSS Design System, JavaScript)
-- **Analytics & BI**: Google Looker Studio, Google Sheets Export Pipeline
+- **Analytics & BI**: Google Looker Studio, Google Sheets Export Pipeline, ChatGPT (MCP Integration)
