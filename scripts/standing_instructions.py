@@ -41,13 +41,58 @@ def is_due_today(instruction: dict, today: date) -> bool:
     return False
 
 
+def is_standing_instruction_match(parsed_amount: float, parsed_expense: str | None, parsed_category: str | None, parsed_type: str, candidate: dict) -> bool:
+    """Checks if a candidate standing instruction or standing instruction expense matches a transaction."""
+    cand_type = candidate.get("expense_type", "debit")
+    if (parsed_type or "debit").lower() != (cand_type or "debit").lower():
+        return False
+
+    cand_amount = float(candidate.get("amount") or 0.0)
+    amount_diff = abs(parsed_amount - cand_amount)
+    allowed_diff = max(150.0, cand_amount * 0.20)
+    if amount_diff > allowed_diff:
+        return False
+
+    parsed_exp_str = (parsed_expense or "").strip().lower()
+    cand_exp_str = (candidate.get("expense") or "").strip().lower()
+    parsed_cat_str = (parsed_category or "").strip().lower()
+    cand_cat_str = (candidate.get("category") or "").strip().lower()
+
+    if cand_exp_str and parsed_exp_str:
+        if cand_exp_str in parsed_exp_str or parsed_exp_str in cand_exp_str:
+            return True
+
+    parsed_tokens = {w for w in parsed_exp_str.split() if len(w) >= 3}
+    cand_tokens = {w for w in cand_exp_str.split() if len(w) >= 3}
+    if parsed_tokens & cand_tokens:
+        return True
+
+    fixed_categories = {"subscriptions", "emi", "rent/cook", "bills", "rent", "cook"}
+    if cand_cat_str and parsed_cat_str and cand_cat_str == parsed_cat_str:
+        if cand_cat_str in fixed_categories:
+            if amount_diff <= max(50.0, cand_amount * 0.05):
+                return True
+
+    return False
+
+
 def main():
     today = datetime.now(IST).date()
+    first_day_of_month = str(today.replace(day=1))
 
     result = supabase.table("standing_instructions").select("*").eq("is_active", True).execute()
     due_today = [i for i in result.data if is_due_today(i, today)]
 
     print(f"{today}: {len(due_today)} standing instruction(s) due")
+
+    # Fetch expenses for the current month to check for existing records
+    existing_expenses_res = (
+        supabase.table("expenses")
+        .select("*")
+        .gte("expense_date", first_day_of_month)
+        .execute()
+    )
+    existing_expenses = existing_expenses_res.data or []
 
     for instruction in due_today:
         end_date = date.fromisoformat(instruction["end_date"]) if instruction["end_date"] else None
@@ -60,6 +105,28 @@ def main():
                 "id", instruction["id"]
             ).execute()
             print(f"  Skipped '{instruction['expense']}' -- past end date, deactivated")
+            continue
+
+        # Check if an expense matching this standing instruction already exists in expenses for this month
+        already_inserted = False
+        for exp in existing_expenses:
+            if is_standing_instruction_match(
+                parsed_amount=float(instruction["amount"]),
+                parsed_expense=instruction["expense"],
+                parsed_category=instruction["category"],
+                parsed_type=instruction["expense_type"],
+                candidate=exp,
+            ):
+                already_inserted = True
+                print(f"  Skipped '{instruction['expense']}' -- already recorded in expenses for this month (id: {exp['id']})")
+                break
+
+        if already_inserted:
+            if end_date and today >= end_date:
+                supabase.table("standing_instructions").update({"is_active": False}).eq(
+                    "id", instruction["id"]
+                ).execute()
+                print(f"  '{instruction['expense']}' reached its end date -- deactivated")
             continue
 
         row = {

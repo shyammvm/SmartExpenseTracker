@@ -286,6 +286,77 @@ EMPTY_PARSED_RESPONSE = {
 }
 
 
+def is_standing_instruction_match(parsed_amount: float, parsed_expense: str | None, parsed_category: str | None, parsed_type: str, candidate: dict) -> bool:
+    """Checks if a candidate standing instruction or standing instruction expense matches a transaction."""
+    cand_type = candidate.get("expense_type", "debit")
+    if (parsed_type or "debit").lower() != (cand_type or "debit").lower():
+        return False
+
+    cand_amount = float(candidate.get("amount") or 0.0)
+    amount_diff = abs(parsed_amount - cand_amount)
+    allowed_diff = max(150.0, cand_amount * 0.20)
+    if amount_diff > allowed_diff:
+        return False
+
+    parsed_exp_str = (parsed_expense or "").strip().lower()
+    cand_exp_str = (candidate.get("expense") or "").strip().lower()
+    parsed_cat_str = (parsed_category or "").strip().lower()
+    cand_cat_str = (candidate.get("category") or "").strip().lower()
+
+    if cand_exp_str and parsed_exp_str:
+        if cand_exp_str in parsed_exp_str or parsed_exp_str in cand_exp_str:
+            return True
+
+    parsed_tokens = {w for w in parsed_exp_str.split() if len(w) >= 3}
+    cand_tokens = {w for w in cand_exp_str.split() if len(w) >= 3}
+    if parsed_tokens & cand_tokens:
+        return True
+
+    fixed_categories = {"subscriptions", "emi", "rent/cook", "bills", "rent", "cook"}
+    if cand_cat_str and parsed_cat_str and cand_cat_str == parsed_cat_str:
+        if cand_cat_str in fixed_categories:
+            if amount_diff <= max(50.0, cand_amount * 0.05):
+                return True
+
+    return False
+
+
+def find_existing_standing_instruction_expense(parsed_amount: float, parsed_expense: str | None, category_name: str | None, parsed_type: str) -> dict | None:
+    today = get_ist_today()
+    first_day_of_month = str(today.replace(day=1))
+
+    res = (
+        supabase.table("expenses")
+        .select("*")
+        .eq("source", "standing_instruction")
+        .gte("expense_date", first_day_of_month)
+        .execute()
+    )
+    if not res.data:
+        return None
+
+    for row in res.data:
+        if is_standing_instruction_match(parsed_amount, parsed_expense, category_name, parsed_type, row):
+            return row
+    return None
+
+
+def find_matching_standing_instruction(parsed_amount: float, parsed_expense: str | None, category_name: str | None, parsed_type: str) -> dict | None:
+    res = (
+        supabase.table("standing_instructions")
+        .select("*")
+        .eq("is_active", True)
+        .execute()
+    )
+    if not res.data:
+        return None
+
+    for inst in res.data:
+        if is_standing_instruction_match(parsed_amount, parsed_expense, category_name, parsed_type, inst):
+            return inst
+    return None
+
+
 @app.post("/parse-expense")
 def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     try:
@@ -344,12 +415,70 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
 
         status = "pending_review" if needs_review else "approved"
 
+        parsed_amount = parsed["amount"]
+        parsed_expense_name = parsed.get("expense")
+        parsed_type = parsed.get("expense_type", "debit")
+
+        # 1. Check if a standing instruction expense was already generated for this month
+        existing_si_expense = find_existing_standing_instruction_expense(
+            parsed_amount=parsed_amount,
+            parsed_expense=parsed_expense_name,
+            category_name=category_name,
+            parsed_type=parsed_type,
+        )
+
+        if existing_si_expense:
+            # Update existing standing instruction expense with SMS details & exact billed amount
+            updates = {
+                "amount": parsed_amount,
+                "raw_text": payload.text,
+                "ai_confidence": parsed.get("confidence"),
+                "status": "approved",
+                "needs_review": False,
+                "review_reason": None,
+            }
+            if payload.source and payload.source != "manual":
+                updates["source"] = payload.source
+            if parsed_expense_name and len(parsed_expense_name) > len(existing_si_expense.get("expense") or ""):
+                updates["expense"] = parsed_expense_name
+            if parsed.get("note"):
+                updates["note"] = parsed.get("note")
+
+            update_res = supabase.table("expenses").update(updates).eq("id", existing_si_expense["id"]).execute()
+            updated_row = update_res.data[0] if update_res.data else {**existing_si_expense, **updates}
+
+            full_parsed = {**EMPTY_PARSED_RESPONSE, **parsed}
+            return {
+                "status": "ok",
+                "error": None,
+                "parsed": full_parsed,
+                "needs_review": False,
+                "inserted": updated_row,
+                "updated_standing_instruction": True,
+            }
+
+        # 2. Check if transaction matches an active standing instruction definition
+        matched_si = find_matching_standing_instruction(
+            parsed_amount=parsed_amount,
+            parsed_expense=parsed_expense_name,
+            category_name=category_name,
+            parsed_type=parsed_type,
+        )
+
+        if matched_si:
+            needs_review = False
+            review_reason = None
+            status = "approved"
+            override_source = "standing_instruction"
+        else:
+            override_source = payload.source
+
         row = {
             "amount": parsed["amount"],
             "expense": parsed.get("expense"),
             "category": category_name,
             "note": parsed.get("note"),
-            "source": payload.source,
+            "source": override_source,
             "raw_text": payload.text,
             "expense_type": parsed.get("expense_type", "debit"),
             "ai_confidence": parsed.get("confidence"),
