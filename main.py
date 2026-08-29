@@ -47,9 +47,8 @@ PARSE_ENDPOINT_SECRET = os.environ.get("PARSE_ENDPOINT_SECRET")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 gemini = genai.Client(api_key=GEMINI_API_KEY)
 
-# "gemini-flash-latest" is a Google-maintained alias that always points to
-# their current Flash model, so this stays current without code changes.
-GEMINI_MODEL = "gemini-flash-latest"
+# Use gemini-flash-lite-latest for high speed (sub-second) and generous 1500 RPM free limits
+GEMINI_MODEL = "gemini-flash-lite-latest"
 
 app = FastAPI()
 
@@ -112,7 +111,7 @@ class StandingInstructionUpdateInput(BaseModel):
 
 def verify_secret(x_endpoint_secret: str | None = Header(default=None, alias="x-endpoint-secret")):
     if PARSE_ENDPOINT_SECRET and x_endpoint_secret != PARSE_ENDPOINT_SECRET:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid secret")
 
 
 def get_category_names() -> list[str]:
@@ -121,7 +120,7 @@ def get_category_names() -> list[str]:
 
 
 def parse_with_gemini(text: str, category_names: list[str]) -> dict:
-    """Ask Gemini Flash to extract structured expense fields from raw text.
+    """Ask Gemini Flash Lite to extract structured expense fields from raw text.
     Includes retries with exponential backoff and fallback models if Gemini is overloaded (503 / 429).
     """
 
@@ -155,15 +154,15 @@ If the text does not appear to describe an outgoing expense, set amount to null.
 
     # Models to attempt in sequence if primary model is unavailable or rate-limited
     models_to_try = [GEMINI_MODEL]
-    for alt in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+    for alt in ["gemini-flash-lite-latest", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]:
         if alt not in models_to_try:
             models_to_try.append(alt)
 
     last_error = None
 
     for model_name in models_to_try:
-        # Retry up to 3 times per model with exponential backoff (1s, 2s, 4s)
-        for attempt in range(3):
+        # Retry up to 2 times per model
+        for attempt in range(2):
             try:
                 response = gemini.models.generate_content(
                     model=model_name,
@@ -192,10 +191,15 @@ If the text does not appear to describe an outgoing expense, set amount to null.
                 except json.JSONDecodeError:
                     raise HTTPException(status_code=422, detail=f"Could not parse AI response: {response.text}")
 
+            except errors.ClientError as e:
+                last_error = e
+                # Don't retry non-existent or 404/400 models; skip to next valid model instantly
+                if "NOT_FOUND" in str(e) or getattr(e, "code", None) in (400, 404):
+                    break
+                time.sleep(1)
             except (errors.APIError, errors.ServerError) as e:
                 last_error = e
-                # Pause before retry (exponential backoff: 1s, 2s, 4s)
-                time.sleep(2 ** attempt)
+                time.sleep(1 * (attempt + 1))
             except HTTPException:
                 raise
             except Exception as e:
