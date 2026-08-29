@@ -1,6 +1,6 @@
 # 🧾 SmartExpenseTracker (Ledger)
 
-> An automated, serverless, AI-powered personal expense tracking engine hosted on **GCP Cloud Run**. Seamlessly captures transactions via iOS Bank SMS Automations, Apple Shortcuts, home-screen Widgy widgets, and a custom PWA UI—powered by **Google Gemini Flash** AI parsing, **Supabase PostgreSQL**, **Looker Studio**, and **Google Sheets**.
+> An automated, serverless, AI-powered personal expense tracking engine hosted on **Render (Free Tier)**. Seamlessly captures transactions via iOS Bank SMS Automations, Apple Shortcuts, home-screen Widgy widgets, and a custom PWA UI—powered by **Google Gemini Flash** AI parsing, **Supabase PostgreSQL**, **Looker Studio**, and **Google Sheets**.
 
 ---
 
@@ -18,8 +18,8 @@ flowchart TD
         B2 -->|POST /add-expense| C1
     end
 
-    subgraph Compute ["☁️ Serverless Core (GCP Cloud Run)"]
-        C1["🚀 FastAPI Engine (Docker / Python 3.11)"]
+    subgraph Compute ["☁️ Core Backend (Render Web Service)"]
+        C1["🚀 FastAPI Engine (Python 3.11 / Uvicorn)"]
         C1 -->|Sync Timezone| C2["⏰ Asia/Kolkata (IST)"]
         
         C1 -->|Raw Text / SMS| D1["🤖 Google Gemini Flash AI"]
@@ -64,10 +64,10 @@ flowchart TD
 
 ## ✨ System Showcase & Key Engineering Highlights
 
-### ☁️ GCP Cloud Run Serverless Architecture
-- **Migrated from Railway to Google Cloud Run**: Re-architected as a lightweight, containerized microservice deployed via Docker on GCP Cloud Run.
-- **Sub-Second Cold Starts & Zero Cost**: Scales down to 0 instances when idle, achieving sub-second response times on demand while staying entirely within GCP free tier limits.
-- **Native IST Timezone Alignment**: Configured with `TZ="Asia/Kolkata"` within the container (`Dockerfile`), ensuring all transaction timestamps, daily totals, and standing instructions accurately align with Indian Standard Time (IST).
+### ☁️ Render Web Service Architecture
+- **Hosted on Render (Free Tier)**: Deployed as a lightweight Python microservice with Uvicorn.
+- **Automatic Health Checks & Zero Operating Cost**: Runs on Render's free tier with automated health checks (`/health`).
+- **Native IST Timezone Alignment**: Configured with `TZ="Asia/Kolkata"` environment variable, ensuring all transaction timestamps, daily totals, and standing instructions accurately align with Indian Standard Time (IST).
 
 ---
 
@@ -112,7 +112,7 @@ flowchart TD
 
 ## 🛠️ Tech Stack Overview
 
-- **Cloud Infrastructure**: Google Cloud Platform (GCP Cloud Run)
+- **Cloud Infrastructure**: Render (Web Service Free Tier)
 - **Containerization**: Docker (Python 3.11 slim image, Uvicorn)
 - **Backend API**: FastAPI (Python), Async HTTPX
 - **AI / LLM Engine**: Google GenAI SDK (`gemini-flash-latest`)

@@ -1,6 +1,7 @@
 // ---- Configuration: same values used across all pages ----
 const CONFIG = {
-  apiUrl: "https://smartexpensetracker-245439889776.asia-south1.run.app",
+  // Replace with your Render service URL once deployed (e.g. https://smartexpensetracker.onrender.com)
+  apiUrl: "https://smartexpensetracker.onrender.com",
 };
 
 function getSecret() {

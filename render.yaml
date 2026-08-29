@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: smartexpensetracker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: TZ
+        value: Asia/Kolkata
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PARSE_ENDPOINT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFICATION_EMAIL
+        sync: false
