@@ -50,8 +50,37 @@ function showPasscodeModal(errorMsg = "") {
   });
 }
 
-// Wraps fetch with the auth header and consistent error handling
-async function apiFetch(path, options = {}) {
+function showLoadingToast(msg = "Connecting to server...") {
+  let toast = document.getElementById("apiLoadingToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "apiLoadingToast";
+    toast.style.cssText = `
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      background: #1f5c4f;
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: sans-serif;
+      z-index: 9999;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    `;
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.display = "block";
+}
+
+function hideLoadingToast() {
+  const toast = document.getElementById("apiLoadingToast");
+  if (toast) toast.style.display = "none";
+}
+
+// Wraps fetch with the auth header, retries, and consistent error handling
+async function apiFetch(path, options = {}, retries = 2) {
   const secret = getSecret();
   if (!secret) {
     showPasscodeModal();
@@ -59,26 +88,59 @@ async function apiFetch(path, options = {}) {
   }
 
   const baseUrl = CONFIG.apiUrl.replace(/\/+$/, "");
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-endpoint-secret': secret,
-      ...(options.headers || {})
+  const url = `${baseUrl}${path}`;
+
+  let toastTimer = setTimeout(() => {
+    showLoadingToast("Server starting up, please wait...");
+  }, 2500);
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    try {
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-endpoint-secret': secret,
+          ...(options.headers || {})
+        }
+      });
+      clearTimeout(timeoutId);
+      clearTimeout(toastTimer);
+      hideLoadingToast();
+
+      if (res.status === 401) {
+        localStorage.removeItem("app_passcode");
+        showPasscodeModal("Unauthorized: Invalid passcode");
+        throw new Error("Unauthorized: Invalid passcode");
+      }
+
+      if ([502, 503, 504].includes(res.status) && attempt < retries) {
+        showLoadingToast("Server waking up, retrying request...");
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed (${res.status})`);
+      }
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (attempt < retries && (err.name === 'AbortError' || err.name === 'TypeError' || err.message.includes('fetch'))) {
+        showLoadingToast("Waking up Render server, retrying...");
+        await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+        continue;
+      }
+      clearTimeout(toastTimer);
+      hideLoadingToast();
+      throw err;
     }
-  });
-
-  if (res.status === 401) {
-    localStorage.removeItem("app_passcode");
-    showPasscodeModal("Unauthorized: Invalid passcode");
-    throw new Error("Unauthorized: Invalid passcode");
   }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
-  }
-  return res.json();
 }
 
 function formatRupees(n) {

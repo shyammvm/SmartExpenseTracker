@@ -16,7 +16,11 @@ import os
 import json
 import time
 import calendar
+import warnings
 from datetime import datetime, date, timedelta, timezone
+
+# Filter third-party Pydantic UserWarning from SDK imports on startup
+warnings.filterwarnings("ignore", category=UserWarning, message=".*is not a Python type.*")
 
 import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends
