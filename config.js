@@ -1,7 +1,6 @@
 // ---- Configuration: same values used across all pages ----
 const CONFIG = {
-  // Replace with your Render service URL once deployed (e.g. https://smartexpensetracker.onrender.com)
-  apiUrl: "https://smartexpensetracker.onrender.com",
+  apiUrl: "https://smartexpensetracker-vtkb.onrender.com",
 };
 
 function getSecret() {
@@ -59,7 +58,8 @@ async function apiFetch(path, options = {}) {
     throw new Error("Passcode required");
   }
 
-  const res = await fetch(`${CONFIG.apiUrl}${path}`, {
+  const baseUrl = CONFIG.apiUrl.replace(/\/+$/, "");
+  const res = await fetch(`${baseUrl}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
