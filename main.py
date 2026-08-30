@@ -16,6 +16,7 @@ import os
 import json
 import time
 import calendar
+import re
 import warnings
 from datetime import datetime, date, timedelta, timezone
 
@@ -124,16 +125,17 @@ def parse_with_gemini(text: str, category_names: list[str]) -> dict:
     Includes retries with exponential backoff and fallback models if Gemini is overloaded (503 / 429).
     """
 
-    system_prompt = f"""You extract structured expense data from raw text, which is
-either a message the user typed themselves, or a bank transaction SMS.
+    system_prompt = f"""You extract structured expense data from raw text.
+The input text can be:
+1. A bank transaction SMS (e.g. "Debited Rs 450.00 at Swiggy via HDFC Bank card xx1234").
+2. A quick, informal spend note from Apple Shortcuts, voice input, or manual typing (e.g. "banana 80", "80 for bananas", "chai 20", "cab to office 250", "spent 500 on petrol", "dinner 1500 with friends").
 
 Available categories (pick the closest match, exactly as spelled): {category_names}
 
-expense_type is the PAYMENT METHOD, not direction of money: "credit" if paid
-using a credit card, "debit" if paid via debit card, UPI, cash, or directly
-from a bank account. Look for cues like "credit card", "Card ending", or the
-card/account type mentioned in bank SMS. Default to "debit" if unclear --
-most day-to-day spending is not on a credit card.
+expense_type is the PAYMENT METHOD:
+- "credit" ONLY if the text explicitly specifies a credit card (e.g. "credit card", "HDFC Credit Card", "paid via credit card").
+- "debit" for EVERYTHING ELSE (including UPI, debit card, cash, netbanking, or when payment method is NOT mentioned or omitted).
+- CRITICAL DEFAULT RULE: If the expense type or payment method is not explicitly mentioned (which is standard for informal notes like "banana 80" or "coffee 150"), ALWAYS set expense_type to "debit".
 
 This table only tracks money going OUT. If the text describes money coming
 IN instead (salary credited, a refund, cashback received, someone paying you
@@ -141,12 +143,14 @@ back), that is NOT an expense -- set amount to null.
 
 "expense" is a short description of what this was for -- a merchant/payee name
 if there is one (e.g. "Swiggy", "Uber"), otherwise a brief description of the
-spend (e.g. "cash withdrawal", "friend's birthday gift").
+spend (e.g. "banana", "chai", "cash withdrawal", "friend's birthday gift").
 
-needs_review: Set to true if:
-1. The merchant or payee name in the bank SMS is raw, cryptic, or an individual's UPI name (e.g. "SRI SAI DREAM C", "RAMESH KUMAR", raw VPA code), where the actual nature of the expense cannot be determined from text alone.
+needs_review: Set to true ONLY if:
+1. The merchant or payee name in a bank SMS is raw, cryptic, or an individual's UPI name (e.g. "SRI SAI DREAM C", "RAMESH KUMAR", raw VPA code), where the actual nature of the expense cannot be determined from text alone.
 2. The closest category picked is "Others" or "Other", or your category choice is an educated guess.
-3. The text is ambiguous or lacks clear merchant/expense details.
+3. The text is completely ambiguous or lacks clear merchant/expense details.
+
+For simple informal notes like "banana 80", "chai 20", "cab to office 250", the expense item and category ARE clear, so needs_review should be FALSE and confidence should be high (>= 0.9).
 
 review_reason: A brief string explaining why needs_review was set to true (e.g. "Categorized as Others", "Cryptic merchant name", "Ambiguous expense details").
 
@@ -365,11 +369,88 @@ def find_matching_standing_instruction(parsed_amount: float, parsed_expense: str
     return None
 
 
+def fallback_shortcut_parser(text: str, category_names: list[str]) -> dict | None:
+    """Fallback parser for quick informal spend inputs when Gemini is unreachable or returns amount=None.
+    Examples: 'banana 80', '80 banana', 'chai 20', '20 for chai', 'auto 150 rs', 'spent 500 on petrol'.
+    """
+    text_clean = text.strip()
+    if not text_clean:
+        return None
+
+    # Check for explicit credit indicator
+    is_credit = bool(re.search(r'\b(credit|credit card)\b', text_clean, re.IGNORECASE))
+    expense_type = "credit" if is_credit else "debit"
+
+    # Pattern 1: "banana 80", "coffee 150.50", "auto 150 rs", "cab 200 bucks"
+    m1 = re.match(r'^(?P<expense>[A-Za-z\s]+?)\s+(?:rs\.?|inr|₹)?\s*(?P<amount>\d+(?:\.\d+)?)\s*(?:rs\.?|inr|bucks|rupees)?(?:\s+(?:via|paid|by|on)\s+.*)?$', text_clean, re.IGNORECASE)
+    
+    # Pattern 2: "80 banana", "150 for coffee", "200 rs cab"
+    m2 = re.match(r'^(?:rs\.?|inr|₹)?\s*(?P<amount>\d+(?:\.\d+)?)\s*(?:rs\.?|inr|bucks|rupees)?\s+(?:for\s+)?(?P<expense>[A-Za-z\s]+?)$', text_clean, re.IGNORECASE)
+
+    # Pattern 3: "spent 500 on petrol", "paid 200 for haircut"
+    m3 = re.match(r'^(?:spent|paid)\s+(?:rs\.?|inr|₹)?\s*(?P<amount>\d+(?:\.\d+)?)\s+(?:on|for)\s+(?P<expense>[A-Za-z\s]+?)$', text_clean, re.IGNORECASE)
+
+    match = m1 or m2 or m3
+    if not match:
+        return None
+
+    try:
+        amount = float(match.group("amount"))
+    except ValueError:
+        return None
+
+    expense_desc = match.group("expense").strip()
+    if not expense_desc or amount <= 0:
+        return None
+
+    expense_lower = expense_desc.lower()
+    best_cat = "Others"
+    cat_map = {
+        "Grocery": ["banana", "apple", "fruit", "grocery", "groceries", "milk", "vegetable", "veggies", "bread", "egg", "supermarket"],
+        "Food": ["chai", "tea", "coffee", "food", "lunch", "dinner", "breakfast", "snack", "dosa", "biryani", "restaurant", "swiggy", "zomato", "cafe"],
+        "Travel": ["cab", "auto", "uber", "ola", "rapido", "taxi", "bus", "train", "flight", "metro", "fare", "toll"],
+        "Petrol": ["petrol", "fuel", "diesel", "gasoline", "gas"],
+        "Bills": ["electricity", "water", "wifi", "internet", "recharge", "mobile bill", "bill"],
+        "Health": ["haircut", "doctor", "medicine", "pharmacy", "clinic", "hospital", "gym", "spa"],
+        "Entertainment": ["movie", "cinema", "netflix", "spotify", "game", "concert"],
+        "Shopping": ["clothes", "shoes", "amazon", "flipkart", "mall", "dress"],
+    }
+    
+    for cat_name in category_names:
+        if cat_name in cat_map:
+            if any(kw in expense_lower for kw in cat_map[cat_name]):
+                best_cat = cat_name
+                break
+        elif cat_name.lower() in expense_lower:
+            best_cat = cat_name
+            break
+
+    return {
+        "amount": amount,
+        "expense": expense_desc.title(),
+        "category": best_cat,
+        "note": None,
+        "expense_type": expense_type,
+        "confidence": 0.85,
+        "needs_review": False,
+        "review_reason": None,
+    }
+
+
 @app.post("/parse-expense")
 def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
     try:
         category_names = get_category_names()
-        parsed = parse_with_gemini(payload.text, category_names)
+        parsed = None
+        try:
+            parsed = parse_with_gemini(payload.text, category_names)
+        except Exception as ge:
+            print(f"Gemini parsing failed or unavailable: {ge}")
+
+        if not isinstance(parsed, dict) or parsed.get("amount") is None:
+            fallback = fallback_shortcut_parser(payload.text, category_names)
+            if fallback and fallback.get("amount") is not None:
+                parsed = fallback
 
         if not isinstance(parsed, dict) or parsed.get("amount") is None:
             return {
@@ -379,6 +460,12 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
                 "needs_review": False,
                 "inserted": None,
             }
+
+        # Ensure expense_type defaults to "debit" if not explicitly "credit"
+        parsed_type = (parsed.get("expense_type") or "debit").lower()
+        if parsed_type not in ("debit", "credit"):
+            parsed_type = "debit"
+        parsed["expense_type"] = parsed_type
 
         # confirm the category exists (case-insensitive) and use its canonical spelling
         cat_result = (
@@ -425,7 +512,6 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
 
         parsed_amount = parsed["amount"]
         parsed_expense_name = parsed.get("expense")
-        parsed_type = parsed.get("expense_type", "debit")
 
         # 1. Check if a standing instruction expense was already generated for this month
         existing_si_expense = find_existing_standing_instruction_expense(
@@ -488,7 +574,7 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
             "note": parsed.get("note"),
             "source": override_source,
             "raw_text": payload.text,
-            "expense_type": parsed.get("expense_type", "debit"),
+            "expense_type": parsed_type,
             "ai_confidence": parsed.get("confidence"),
             "expense_date": str(get_ist_today()),
             "status": status,
@@ -552,13 +638,17 @@ def add_expense(payload: ManualExpenseInput, _=Depends(verify_secret)):
         raise HTTPException(status_code=422, detail=f"Unknown category: {payload.category}")
     category_name = cat_result.data[0]["name"]
 
+    exp_type = (payload.expense_type or "debit").lower()
+    if exp_type not in ("debit", "credit"):
+        exp_type = "debit"
+
     row = {
         "amount": payload.amount,
         "expense": payload.expense,
         "category": category_name,
         "note": payload.note,
         "source": "manual",
-        "expense_type": payload.expense_type,
+        "expense_type": exp_type,
         "expense_date": payload.expense_date or str(get_ist_today()),
         "status": "approved",
         "needs_review": False,

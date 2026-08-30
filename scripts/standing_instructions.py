@@ -43,7 +43,7 @@ def is_due_today(instruction: dict, today: date) -> bool:
 
 def is_standing_instruction_match(parsed_amount: float, parsed_expense: str | None, parsed_category: str | None, parsed_type: str, candidate: dict) -> bool:
     """Checks if a candidate standing instruction or standing instruction expense matches a transaction."""
-    cand_type = candidate.get("expense_type", "debit")
+    cand_type = candidate.get("expense_type") or "debit"
     if (parsed_type or "debit").lower() != (cand_type or "debit").lower():
         return False
 
