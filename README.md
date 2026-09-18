@@ -87,8 +87,9 @@ flowchart TD
 
 ---
 
-### 📲 Apple Ecosystem, Widgy iOS Widget & PWA Front-End
+### 📲 Apple Ecosystem, iOS Scriptable Widget & PWA Front-End
 - **Zero-Touch iOS Automation**: Incoming bank SMS notifications trigger background Apple Shortcuts that forward raw text directly to the Cloud Run `/parse-expense` endpoint.
+- **iOS Scriptable Widget**: Minimalist OLED dark-themed home screen widget (`scripts/expense_ledger_widget.js`) querying `/summary/entry-page` to present today's spend, daily burn average, and month-to-date total with offline caching.
 - **Widgy Home-Screen Widget**: Custom iOS Widgy widget queries Cloud Run APIs to present daily budget burn rates, monthly totals, and recent transaction tapes on the iPhone home screen.
 - **Custom Mobile PWA**: Built with Vanilla HTML5/CSS3/JS featuring a custom receipt-styled UI, native iOS safe-area notch support, standalone app mode, and dark mode aesthetics.
 

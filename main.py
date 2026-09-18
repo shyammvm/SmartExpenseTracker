@@ -894,7 +894,7 @@ def summary_entry_page(_=Depends(verify_secret)):
 
     month_rows = (
         supabase.table("expenses_flat")
-        .select("amount, category_type")
+        .select("amount, category_type, expense_date")
         .gte("expense_date", str(month_start))
         .lte("expense_date", str(today))
         .neq("status", "pending_review")
@@ -907,12 +907,31 @@ def summary_entry_page(_=Depends(verify_secret)):
     days_elapsed = today.day  # 1st of month = day 1, so this is correct as a divisor
     avg_daily_variable = round(month_variable / days_elapsed, 2) if days_elapsed else 0
 
+    # Aggregate daily variable spend breakdown for widget chart (zero extra DB queries)
+    daily_spend_map = {}
+    for r in month_rows.data:
+        d_str = r.get("expense_date")
+        if d_str and r.get("category_type") == "variable":
+            daily_spend_map[d_str] = round(daily_spend_map.get(d_str, 0.0) + r["amount"], 2)
+
+    days_to_show = min(14, max(7, today.day))
+    daily_history = []
+    for i in range(days_to_show - 1, -1, -1):
+        d = today - timedelta(days=i)
+        d_str = str(d)
+        daily_history.append({
+            "date": d_str,
+            "day": d.day,
+            "amount": daily_spend_map.get(d_str, 0.0)
+        })
+
     return {
         "today_total": round(today_total, 2),
         "month_total": round(month_total, 2),
         "month_fixed_total": round(month_fixed, 2),
         "month_variable_total": round(month_variable, 2),
         "avg_daily_variable_spend": avg_daily_variable,
+        "daily_history": daily_history,
     }
 
 
