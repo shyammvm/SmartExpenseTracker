@@ -5,17 +5,18 @@
 /**
  * 🧾 EXPENSE LEDGER — Apple Stocks Style Visual Widget
  * 
- * Styled after Apple/Tesla Stocks Cards (Image 1) + Daily Spending Trend (Image 2):
+ * Styled after Apple/Tesla Stocks Cards + Daily Spending Trend:
  *  - Dynamic Card Color:
  *      🟢 Vibrant Emerald Green when Today <= Daily Average
  *      🔴 Vibrant Crimson Red when Today > Daily Average
  *  - Daily Spending Area Graph with:
  *      - Dotted Benchmark Line representing your Daily Average
  *      - Smooth Bezier curve showing daily spend progression
- *      - Glowing highlight point on today's value
+ *      - Glowing highlight beacon on today's value
  *      - Soft translucent area fill under the curve
  *  - Real-time Spend Metric & Percentage Indicator (▼ 27% / ▲ 125%)
- *  - 100% Free-tier Friendly (Zero extra Render/Supabase usage overhead)
+ *  - Dynamic Month Name + Monthly & Variable totals
+ *  - 100% Native Scriptable APIs (zero non-standard polyfills or crashing methods)
  *  - Taps directly open GitHub Pages ledger site
  */
 
@@ -32,9 +33,8 @@ const CONFIG = {
   // Web app URL opened when tapping the widget (GitHub Pages PWA)
   webAppUrl: "https://shyammvm.github.io/SmartExpenseTracker/index.html",
 
-  // Widget Title & Subtitle
+  // Widget Title
   widgetTitle: "Ledger",
-  widgetSubtitle: "SEPTEMBER",
 
   // Compact Currency Settings (₹ 312, ₹ 1.2K, ₹ 55.9K)
   useCompactNumbers: true,
@@ -55,13 +55,10 @@ const CONFIG = {
   // Widget auto-refresh interval in minutes
   refreshIntervalMinutes: 15,
 
-  // Network timeout in seconds
-  timeoutSeconds: 30,
+  // Network timeout in seconds (failover to cache quickly if Render is sleeping)
+  timeoutSeconds: 5,
 
-  // Automatically open the ledger site in Safari if the widget tap triggers the app
-  autoOpenSiteInApp: true,
-
-  // In-app interactive preview size ("small" or "medium") if autoOpenSiteInApp is false
+  // In-app interactive preview size ("small" or "medium")
   previewSize: "small",
 };
 
@@ -71,7 +68,8 @@ const CONFIG = {
 (async () => {
   const data = await fetchExpenseData();
 
-  const widgetFamily = config.runsInWidget
+  const isRunningInWidget = (typeof config !== "undefined" && Boolean(config.runsInWidget));
+  const widgetFamily = isRunningInWidget
     ? (config.widgetFamily || "small")
     : (CONFIG.previewSize || "small");
 
@@ -82,15 +80,11 @@ const CONFIG = {
     widget = await createSmallWidget(data);
   }
 
-  if (config.runsInWidget) {
-    Script.setWidget(widget);
-  } else {
-    if (CONFIG.autoOpenSiteInApp && CONFIG.webAppUrl) {
-      Safari.open(CONFIG.webAppUrl);
-      Script.complete();
-      return;
-    }
+  // Register widget for iOS Home Screen
+  Script.setWidget(widget);
 
+  // When testing inside Scriptable app, display on-screen preview
+  if (!isRunningInWidget) {
     if (widgetFamily === "medium") {
       await widget.presentMedium();
     } else {
@@ -102,7 +96,7 @@ const CONFIG = {
 })();
 
 // =====================================================================
-// 🎨 SMALL WIDGET BUILDER (Stocks Card Style — Image 1 + Image 2)
+// 🎨 SMALL WIDGET BUILDER (Stocks Card Style)
 // =====================================================================
 
 async function createSmallWidget(data) {
@@ -135,13 +129,24 @@ async function createSmallWidget(data) {
   titleCol.layoutVertically();
   titleCol.spacing = 1;
 
+  const monthTotal = data ? Number(data.month_total) || 0 : 0;
+  const monthVar = data ? Number(data.month_variable_total) || 0 : 0;
+  const currentMonth = getCurrentMonthName(true);
+
   const titleText = titleCol.addText(CONFIG.widgetTitle);
   titleText.font = Font.boldSystemFont(15);
   titleText.textColor = new Color("#FFFFFF");
 
-  const subtitleText = titleCol.addText(isOverBudget ? "OVER AVG" : CONFIG.widgetSubtitle);
+  // Dynamic Month Name + Monthly Total & Variable in header subtitle
+  const subtitleText = titleCol.addText(
+    isOverBudget
+      ? `${currentMonth} · OVER AVG (M: ${formatCurrency(monthTotal)})`
+      : `${currentMonth} · ${formatCurrency(monthTotal)} (Var ${formatCurrency(monthVar)})`
+  );
   subtitleText.font = Font.systemFont(9);
-  subtitleText.textColor = new Color("#FFFFFF", 0.7);
+  subtitleText.textColor = new Color("#FFFFFF", 0.8);
+  subtitleText.minimumScaleFactor = 0.75;
+  subtitleText.lineLimit = 1;
 
   headerRow.addSpacer();
 
@@ -182,7 +187,7 @@ async function createSmallWidget(data) {
 
   widget.addSpacer(6);
 
-  // --- 3. BOTTOM ROW: SPEND AMOUNT + PERCENTAGE (Like Image 1) ---
+  // --- 3. BOTTOM ROW: SPEND AMOUNT + DAY-OVER-DAY PERCENTAGE (Image 1 Style) ---
   const bottomRow = widget.addStack();
   bottomRow.layoutHorizontally();
   bottomRow.bottomAlignContent();
@@ -195,15 +200,19 @@ async function createSmallWidget(data) {
 
   bottomRow.addSpacer();
 
-  // Percentage & Arrow Badge
+  // Percentage & Arrow Badge based on previous day with "yes." indicator
+  const yesterdayTotal = getYesterdayAmount(data, history);
+  const dod = calculateDayOverDayChange(todayTotal, yesterdayTotal);
+
   const pctStack = bottomRow.addStack();
   pctStack.layoutHorizontally();
   pctStack.centerAlignContent();
 
-  const arrow = isOverBudget ? "▲ " : "▼ ";
-  const pctText = pctStack.addText(`${arrow}${burnPct}%`);
-  pctText.font = Font.boldSystemFont(12);
+  const pctText = pctStack.addText(dod.text);
+  pctText.font = Font.boldSystemFont(11);
   pctText.textColor = new Color(subtextColor);
+  pctText.minimumScaleFactor = 0.8;
+  pctText.lineLimit = 1;
 
   const refreshDate = new Date(Date.now() + 1000 * 60 * CONFIG.refreshIntervalMinutes);
   widget.refreshAfterDate = refreshDate;
@@ -212,14 +221,17 @@ async function createSmallWidget(data) {
 }
 
 // =====================================================================
-// 🎨 MEDIUM WIDGET BUILDER (Wide Panoramic Trend — Image 2)
+// 🎨 MEDIUM WIDGET BUILDER (Panoramic Trend)
 // =====================================================================
 
 async function createMediumWidget(data) {
   const todayTotal = data ? Number(data.today_total) || 0 : 0;
   const avgDaily = data ? Number(data.avg_daily_variable_spend) || 1 : 1;
   const isOverBudget = todayTotal > avgDaily;
-  const burnPct = Math.round((todayTotal / (avgDaily || 1)) * 100);
+
+  const history = getHistoryArray(data, todayTotal, avgDaily);
+  const yesterdayTotal = getYesterdayAmount(data, history);
+  const dod = calculateDayOverDayChange(todayTotal, yesterdayTotal);
 
   const topColor = isOverBudget ? CONFIG.redGradientTop : CONFIG.greenGradientTop;
   const bottomColor = isOverBudget ? CONFIG.redGradientBottom : CONFIG.greenGradientBottom;
@@ -247,6 +259,10 @@ async function createMediumWidget(data) {
     headerRow.addSpacer(6);
   }
 
+  const monthTotal = data ? Number(data.month_total) || 0 : 0;
+  const monthVar = data ? Number(data.month_variable_total) || 0 : 0;
+  const currentMonth = getCurrentMonthName(true);
+
   const titleCol = headerRow.addStack();
   titleCol.layoutVertically();
 
@@ -254,9 +270,9 @@ async function createMediumWidget(data) {
   title.font = Font.boldSystemFont(14);
   title.textColor = new Color("#FFFFFF");
 
-  const sub = titleCol.addText("DAILY SPENDING TREND");
+  const sub = titleCol.addText(`${currentMonth} TOTAL: ${formatCurrency(monthTotal)} · VAR: ${formatCurrency(monthVar)}`);
   sub.font = Font.systemFont(9);
-  sub.textColor = new Color("#FFFFFF", 0.7);
+  sub.textColor = new Color("#FFFFFF", 0.8);
 
   headerRow.addSpacer();
 
@@ -267,18 +283,15 @@ async function createMediumWidget(data) {
   const valText = rightCol.addText(formatCurrency(todayTotal));
   valText.font = Font.boldSystemFont(18);
   valText.textColor = new Color("#FFFFFF");
-  valText.rightAlignText();
 
-  const arrow = isOverBudget ? "▲ " : "▼ ";
-  const pText = rightCol.addText(`${arrow}${burnPct}% of ${formatCurrency(avgDaily)} avg`);
+  const yestFormatted = formatCurrency(yesterdayTotal);
+  const pText = rightCol.addText(`${dod.text} (${yestFormatted})`);
   pText.font = Font.systemFont(10);
   pText.textColor = new Color(subtextColor);
-  pText.rightAlignText();
 
   widget.addSpacer(10);
 
   // --- PANORAMIC DAILY SPEND GRAPH ---
-  const history = getHistoryArray(data, todayTotal, avgDaily);
   const chartImg = renderAreaChart(292, 76, history, avgDaily, isOverBudget);
   if (chartImg) {
     const chartStack = widget.addStack();
@@ -312,6 +325,10 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     const padBottom = 8;
     const chartHeight = height - padTop - padBottom;
 
+    if (!Array.isArray(history) || history.length < 2) {
+      return null;
+    }
+
     const amounts = history.map(h => Number(h.amount) || 0);
     const maxVal = Math.max(...amounts, avgDaily * 1.35, 100);
     const minVal = 0;
@@ -324,14 +341,14 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
       return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
     });
 
-    // 1. DOTTED BENCHMARK LINE (Image 2: Daily Average Line)
+    // 1. DOTTED BENCHMARK LINE (Daily Average Line)
     const avgNorm = (avgDaily - minVal) / (maxVal - minVal);
     const avgY = Math.round((height - padBottom - avgNorm * chartHeight) * 10) / 10;
     drawDottedLine(dc, padX, width - padX, avgY, "#FFFFFF", 0.45, 4, 3);
 
     const bottomY = height - padBottom;
 
-    // 2. AREA GRADIENT / TRANSLUCENT FILL UNDER THE CURVE
+    // 2. AREA TRANSLUCENT FILL UNDER THE CURVE
     const fillPath = new Path();
     fillPath.move(new Point(points[0].x, bottomY));
     fillPath.addLine(new Point(points[0].x, points[0].y));
@@ -373,23 +390,18 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     dc.setLineWidth(2.2);
     dc.strokePath();
 
-    // 4. TODAY'S GLOWING BEACON (Last Point)
+    // 4. TODAY'S GLOWING BEACON (Last Point) - Native Scriptable DrawContext.fillEllipse
     const lastPt = points[points.length - 1];
 
-    const halo = new Path();
-    halo.addEllipse(new Rect(lastPt.x - 5, lastPt.y - 5, 10, 10));
-    dc.addPath(halo);
     dc.setFillColor(new Color("#FFFFFF", 0.35));
-    dc.fillPath();
+    dc.fillEllipse(new Rect(lastPt.x - 5, lastPt.y - 5, 10, 10));
 
-    const dot = new Path();
-    dot.addEllipse(new Rect(lastPt.x - 2.5, lastPt.y - 2.5, 5, 5));
-    dc.addPath(dot);
     dc.setFillColor(new Color("#FFFFFF", 1.0));
-    dc.fillPath();
+    dc.fillEllipse(new Rect(lastPt.x - 2.5, lastPt.y - 2.5, 5, 5));
 
     return dc.getImage();
   } catch (e) {
+    console.warn("Chart render error: " + e);
     return null;
   }
 }
@@ -424,6 +436,41 @@ function getHistoryArray(data, todayTotal, avgDaily) {
   ];
 }
 
+function getYesterdayAmount(data, history) {
+  if (data && Array.isArray(data.daily_history) && data.daily_history.length >= 2) {
+    const yest = data.daily_history[data.daily_history.length - 2];
+    if (yest && typeof yest.amount !== "undefined") {
+      return Number(yest.amount) || 0;
+    }
+  }
+  if (Array.isArray(history) && history.length >= 2) {
+    const yest = history[history.length - 2];
+    if (yest && typeof yest.amount !== "undefined") {
+      return Number(yest.amount) || 0;
+    }
+  }
+  return 0;
+}
+
+function calculateDayOverDayChange(todayTotal, yesterdayTotal) {
+  if (yesterdayTotal > 0) {
+    const diff = todayTotal - yesterdayTotal;
+    const pct = Math.round((diff / yesterdayTotal) * 100);
+    const absPct = Math.abs(pct);
+    if (diff > 0) {
+      return { pct: absPct, arrow: "▲ ", isIncrease: true, text: `▲ ${absPct}% yes.` };
+    } else if (diff < 0) {
+      return { pct: absPct, arrow: "▼ ", isIncrease: false, text: `▼ ${absPct}% yes.` };
+    } else {
+      return { pct: 0, arrow: "", isIncrease: false, text: "0% yes." };
+    }
+  } else if (todayTotal > 0) {
+    return { pct: 100, arrow: "▲ ", isIncrease: true, text: "▲ 100% yes." };
+  } else {
+    return { pct: 0, arrow: "", isIncrease: false, text: "0% yes." };
+  }
+}
+
 // =====================================================================
 // 🖌️ UI & UTILITIES
 // =====================================================================
@@ -437,7 +484,7 @@ function makeLinearGradient(topHex, bottomHex) {
 
 function getSFSymbolImage(symbolName, pointSize = 12) {
   try {
-    if (typeof SFSymbol !== "undefined" && SFSymbol.named) {
+    if (typeof SFSymbol !== "undefined" && SFSymbol && typeof SFSymbol.named === "function") {
       const sym = SFSymbol.named(symbolName);
       if (sym) {
         sym.applyFont(Font.systemFont(pointSize));
@@ -453,29 +500,44 @@ function getSFSymbolImage(symbolName, pointSize = 12) {
 // =====================================================================
 
 async function fetchExpenseData() {
-  const secret = (args && args.widgetParameter) ? args.widgetParameter.trim() : CONFIG.apiSecret;
+  const secret = (typeof args !== "undefined" && args && typeof args.widgetParameter === "string" && args.widgetParameter.trim().length > 0)
+    ? args.widgetParameter.trim()
+    : CONFIG.apiSecret;
   const baseUrl = CONFIG.apiUrl.replace(/\/+$/, "");
   const endpoint = `${baseUrl}/summary/entry-page`;
 
-  const req = new Request(endpoint);
-  req.method = "GET";
-  req.headers = {
-    "Content-Type": "application/json",
-    "x-endpoint-secret": secret,
-  };
-  req.timeoutInterval = CONFIG.timeoutSeconds;
-
   try {
+    const req = new Request(endpoint);
+    req.method = "GET";
+    req.headers = {
+      "Content-Type": "application/json",
+      "x-endpoint-secret": secret,
+    };
+    req.timeoutInterval = CONFIG.timeoutSeconds || 5;
     const json = await req.loadJSON();
     if (json && typeof json.today_total !== "undefined") {
       saveToCache(json);
       return json;
     }
   } catch (err) {
-    console.warn("API request failed or timed out. Falling back to local cache: " + err);
+    console.warn("API fetch error or timeout: " + err);
   }
 
-  return loadFromCache();
+  // Fallback to local cache so iOS NEVER kills the widget with a timeout
+  const cached = loadFromCache();
+  if (cached) {
+    return cached;
+  }
+
+  // Clean default placeholder if cache is empty on the very first run
+  return {
+    today_total: 0,
+    month_total: 0,
+    month_variable_total: 0,
+    month_fixed_total: 0,
+    avg_daily_variable_spend: 1000,
+    daily_history: []
+  };
 }
 
 function getCacheFilePath() {
@@ -503,7 +565,7 @@ function loadFromCache() {
 }
 
 // =====================================================================
-// 🛠️ NUMBER FORMATTING
+// 🛠️ NUMBER FORMATTING & HELPERS
 // =====================================================================
 
 function formatCurrency(amount) {
@@ -547,4 +609,12 @@ function formatCompactCurrency(amount) {
   } catch (e) {
     return `${sign}₹ ${Math.round(abs)}`;
   }
+}
+
+function getCurrentMonthName(short = true) {
+  const shortMonths = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const longMonths = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+  const d = new Date();
+  const monthIdx = d.getMonth();
+  return short ? shortMonths[monthIdx] : longMonths[monthIdx];
 }
