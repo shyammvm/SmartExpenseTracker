@@ -139,9 +139,7 @@ async function createSmallWidget(data) {
 
   // Dynamic Month Name + Monthly Total & Variable in header subtitle
   const subtitleText = titleCol.addText(
-    isOverBudget
-      ? `${currentMonth} · OVER AVG (M: ${formatCurrency(monthTotal)})`
-      : `${currentMonth} · ${formatCurrency(monthTotal)} (Var ${formatCurrency(monthVar)})`
+    `${currentMonth} · ${formatCurrency(monthTotal)} (Var ${formatCurrency(monthVar)})`
   );
   subtitleText.font = Font.systemFont(9);
   subtitleText.textColor = new Color("#FFFFFF", 0.8);
@@ -174,7 +172,7 @@ async function createSmallWidget(data) {
 
   // --- 2. DAILY SPENDING GRAPH (Image 2 Style with Dotted Benchmark) ---
   const history = getHistoryArray(data, todayTotal, avgDaily);
-  const chartImg = renderAreaChart(131, 68, history, avgDaily, isOverBudget);
+  const chartImg = renderAreaChart(136, 68, history, avgDaily, isOverBudget);
   if (chartImg) {
     const chartStack = widget.addStack();
     chartStack.layoutHorizontally();
@@ -182,7 +180,7 @@ async function createSmallWidget(data) {
     if (CONFIG.webAppUrl) chartStack.url = CONFIG.webAppUrl;
 
     const chartWidgetImg = chartStack.addImage(chartImg);
-    chartWidgetImg.imageSize = new Size(131, 68);
+    chartWidgetImg.imageSize = new Size(136, 68);
   }
 
   widget.addSpacer(6);
@@ -320,10 +318,18 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     dc.opaque = false;
     dc.respectScreenScale = true;
 
-    const padX = 8;
+    const padX = 2;
     const padTop = 14;
     const padBottom = 8;
     const chartHeight = height - padTop - padBottom;
+
+    // Use full widget width: dock the benchmark pill at far right, expand graph up to the pill
+    const isSmall = width <= 200;
+    const pillW = isSmall ? 28 : 46;
+    const pillRightMargin = isSmall ? 1 : 2;
+    const pillX = width - pillW - pillRightMargin;
+    const graphEndX = pillX - (isSmall ? 3 : 5);
+    const graphWidth = graphEndX - padX;
 
     if (!Array.isArray(history) || history.length < 2) {
       return null;
@@ -333,18 +339,18 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     const maxVal = Math.max(...amounts, avgDaily * 1.35, 100);
     const minVal = 0;
 
-    // Calculate (x, y) coordinates for each day
+    // Calculate (x, y) coordinates for each day within the expanded graph area [padX, graphEndX]
     const points = amounts.map((val, idx) => {
-      const x = padX + (idx / Math.max(1, amounts.length - 1)) * (width - 2 * padX);
+      const x = padX + (idx / Math.max(1, amounts.length - 1)) * graphWidth;
       const norm = (val - minVal) / (maxVal - minVal);
       const y = height - padBottom - norm * chartHeight;
       return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
     });
 
-    // 1. DOTTED BENCHMARK LINE (Daily Average Line)
+    // 1. DOTTED BENCHMARK LINE (spans across the graph area)
     const avgNorm = (avgDaily - minVal) / (maxVal - minVal);
     const avgY = Math.round((height - padBottom - avgNorm * chartHeight) * 10) / 10;
-    drawDottedLine(dc, padX, width - padX, avgY, "#FFFFFF", 0.45, 4, 3);
+    drawDottedLine(dc, padX, graphEndX, avgY, "#FFFFFF", 0.45, 4, 3);
 
     const bottomY = height - padBottom;
 
@@ -390,7 +396,7 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     dc.setLineWidth(2.2);
     dc.strokePath();
 
-    // 4. TODAY'S GLOWING BEACON (Last Point) - Native Scriptable DrawContext.fillEllipse
+    // 4. TODAY'S GLOWING BEACON (Last Point at x = graphEndX)
     const lastPt = points[points.length - 1];
 
     dc.setFillColor(new Color("#FFFFFF", 0.35));
@@ -398,6 +404,9 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
 
     dc.setFillColor(new Color("#FFFFFF", 1.0));
     dc.fillEllipse(new Rect(lastPt.x - 2.5, lastPt.y - 2.5, 5, 5));
+
+    // 5. BENCHMARK NUMBER DOCKED TO THE FAR RIGHT
+    drawRightAvgLabel(dc, width, height, pillX, pillW, avgY, avgDaily, padBottom);
 
     return dc.getImage();
   } catch (e) {
@@ -417,6 +426,34 @@ function drawDottedLine(dc, startX, endX, y, hexColor, alpha = 0.5, dash = 4, ga
     p.addLine(new Point(x2, y));
     dc.addPath(p);
     dc.strokePath();
+  }
+}
+
+function drawRightAvgLabel(dc, width, height, pillX, pillW, avgY, avgDaily, padBottom = 8) {
+  try {
+    const compactVal = formatCompactCurrency(avgDaily);
+    const isSmall = width <= 200;
+    const text = isSmall ? compactVal.replace("₹ ", "₹") : compactVal;
+    const pillH = 13;
+    const pillY = Math.max(2, Math.min(height - padBottom - pillH, avgY - pillH / 2));
+
+    const pillPath = new Path();
+    pillPath.addRoundedRect(new Rect(pillX, pillY, pillW, pillH), 3.5, 3.5);
+    dc.addPath(pillPath);
+    dc.setFillColor(new Color("#000000", 0.55));
+    dc.fillPath();
+
+    dc.addPath(pillPath);
+    dc.setStrokeColor(new Color("#FFFFFF", 0.30));
+    dc.setLineWidth(0.75);
+    dc.strokePath();
+
+    dc.setFont(Font.boldSystemFont(isSmall ? 7.5 : 8.5));
+    dc.setTextColor(new Color("#FFFFFF", 0.95));
+    dc.setTextAlignedCenter();
+    dc.drawTextInRect(text, new Rect(pillX, pillY + 1.5, pillW, pillH));
+  } catch (e) {
+    console.warn("Right avg label render error: " + e);
   }
 }
 
