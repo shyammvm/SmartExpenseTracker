@@ -927,6 +927,7 @@ def summary_entry_page(_=Depends(verify_secret)):
 
     return {
         "today_total": round(today_total, 2),
+        "today_variable_total": round(daily_spend_map.get(str(today), 0.0), 2),
         "month_total": round(month_total, 2),
         "month_fixed_total": round(month_fixed, 2),
         "month_variable_total": round(month_variable, 2),

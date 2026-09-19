@@ -168,11 +168,11 @@ async function createSmallWidget(data) {
     rupeeText.textColor = new Color("#FFFFFF");
   }
 
-  widget.addSpacer(6);
+  widget.addSpacer(4);
 
   // --- 2. DAILY SPENDING GRAPH (Image 2 Style with Dotted Benchmark) ---
   const history = getHistoryArray(data, todayTotal, avgDaily);
-  const chartImg = renderAreaChart(136, 68, history, avgDaily, isOverBudget);
+  const chartImg = renderAreaChart(148, 68, history, avgDaily, isOverBudget);
   if (chartImg) {
     const chartStack = widget.addStack();
     chartStack.layoutHorizontally();
@@ -180,10 +180,10 @@ async function createSmallWidget(data) {
     if (CONFIG.webAppUrl) chartStack.url = CONFIG.webAppUrl;
 
     const chartWidgetImg = chartStack.addImage(chartImg);
-    chartWidgetImg.imageSize = new Size(136, 68);
+    chartWidgetImg.imageSize = new Size(148, 68);
   }
 
-  widget.addSpacer(6);
+  widget.addSpacer(4);
 
   // --- 3. BOTTOM ROW: SPEND AMOUNT + DAY-OVER-DAY PERCENTAGE (Image 1 Style) ---
   const bottomRow = widget.addStack();
@@ -191,10 +191,22 @@ async function createSmallWidget(data) {
   bottomRow.bottomAlignContent();
   if (CONFIG.webAppUrl) bottomRow.url = CONFIG.webAppUrl;
 
-  const amountText = bottomRow.addText(formatCurrency(todayTotal));
+  const todayStack = bottomRow.addStack();
+  todayStack.layoutVertically();
+  todayStack.spacing = 1;
+
+  const amountText = todayStack.addText(formatCurrency(todayTotal));
   amountText.font = Font.boldSystemFont(17);
   amountText.textColor = new Color("#FFFFFF");
-  amountText.minimumScaleFactor = 0.75;
+  amountText.minimumScaleFactor = 0.8;
+  amountText.lineLimit = 1;
+
+  const todayVar = getTodayVariable(data, history);
+  const varText = todayStack.addText(formatCurrency(todayVar));
+  varText.font = Font.systemFont(10);
+  varText.textColor = new Color("#FFFFFF", 0.65);
+  varText.minimumScaleFactor = 0.8;
+  varText.lineLimit = 1;
 
   bottomRow.addSpacer();
 
@@ -278,9 +290,19 @@ async function createMediumWidget(data) {
   const rightCol = headerRow.addStack();
   rightCol.layoutVertically();
 
-  const valText = rightCol.addText(formatCurrency(todayTotal));
+  const valRow = rightCol.addStack();
+  valRow.layoutHorizontally();
+  valRow.bottomAlignContent();
+  valRow.spacing = 3;
+
+  const valText = valRow.addText(formatCurrency(todayTotal));
   valText.font = Font.boldSystemFont(18);
   valText.textColor = new Color("#FFFFFF");
+
+  const todayVar = getTodayVariable(data, history);
+  const varText = valRow.addText(formatCurrency(todayVar));
+  varText.font = Font.systemFont(10);
+  varText.textColor = new Color("#FFFFFF", 0.65);
 
   const yestFormatted = formatCurrency(yesterdayTotal);
   const pText = rightCol.addText(`${dod.text} (${yestFormatted})`);
@@ -326,9 +348,9 @@ function renderAreaChart(width, height, history, avgDaily, isOverBudget) {
     // Use full widget width: dock the benchmark pill at far right, expand graph up to the pill
     const isSmall = width <= 200;
     const pillW = isSmall ? 28 : 46;
-    const pillRightMargin = isSmall ? 1 : 2;
+    const pillRightMargin = isSmall ? 0 : 1;        // 👈 Tighter edge spacing
     const pillX = width - pillW - pillRightMargin;
-    const graphEndX = pillX - (isSmall ? 3 : 5);
+    const graphEndX = pillX - (isSmall ? 1 : 2);    // 👈 Reduced gap so graph extends closer to the pill
     const graphWidth = graphEndX - padX;
 
     if (!Array.isArray(history) || history.length < 2) {
@@ -489,6 +511,25 @@ function getYesterdayAmount(data, history) {
   return 0;
 }
 
+function getTodayVariable(data, history) {
+  if (data && typeof data.today_variable_total !== "undefined" && data.today_variable_total !== null) {
+    return Number(data.today_variable_total) || 0;
+  }
+  if (data && Array.isArray(data.daily_history) && data.daily_history.length >= 1) {
+    const todayEntry = data.daily_history[data.daily_history.length - 1];
+    if (todayEntry && typeof todayEntry.amount !== "undefined") {
+      return Number(todayEntry.amount) || 0;
+    }
+  }
+  if (Array.isArray(history) && history.length >= 1) {
+    const todayEntry = history[history.length - 1];
+    if (todayEntry && typeof todayEntry.amount !== "undefined") {
+      return Number(todayEntry.amount) || 0;
+    }
+  }
+  return 0;
+}
+
 function calculateDayOverDayChange(todayTotal, yesterdayTotal) {
   if (yesterdayTotal > 0) {
     const diff = todayTotal - yesterdayTotal;
@@ -569,6 +610,7 @@ async function fetchExpenseData() {
   // Clean default placeholder if cache is empty on the very first run
   return {
     today_total: 0,
+    today_variable_total: 0,
     month_total: 0,
     month_variable_total: 0,
     month_fixed_total: 0,
