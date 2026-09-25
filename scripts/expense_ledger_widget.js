@@ -208,29 +208,26 @@ async function createSmallWidget(data) {
 
   widget.addSpacer(3);
 
-  // --- 3. TOTAL BUDGET VS CURRENT SAVING MICRO-BAR ---
-  const totalBudget = data ? Number(data.total_budget || data.total_proposed_variable_budget || 0) : 0;
+  // --- 3. CURRENT SAVINGS MICRO-BAR ---
   const currentSavings = data ? Number(data.current_savings || 0) : 0;
 
-  const budSavBar = widget.addStack();
-  budSavBar.layoutHorizontally();
-  budSavBar.centerAlignContent();
-  budSavBar.backgroundColor = new Color("#000000", 0.28);
-  budSavBar.cornerRadius = 4;
-  budSavBar.setPadding(2, 6, 2, 6);
-  if (CONFIG.webAppUrl) budSavBar.url = CONFIG.webAppUrl;
+  const savBar = widget.addStack();
+  savBar.layoutHorizontally();
+  savBar.centerAlignContent();
+  savBar.backgroundColor = new Color("#000000", 0.28);
+  savBar.cornerRadius = 4;
+  savBar.setPadding(2, 6, 2, 6);
+  if (CONFIG.webAppUrl) savBar.url = CONFIG.webAppUrl;
 
-  const budLabel = budSavBar.addText(`Bud ${formatCurrency(totalBudget)} · `);
-  budLabel.font = Font.systemFont(8.5);
-  budLabel.textColor = new Color("#FFFFFF", 0.85);
-  budLabel.minimumScaleFactor = 0.8;
-  budLabel.lineLimit = 1;
+  const savLabel = savBar.addText("Savings: ");
+  savLabel.font = Font.systemFont(8.5);
+  savLabel.textColor = new Color("#FFFFFF", 0.85);
 
-  const savLabel = budSavBar.addText(`Sav ${formatCurrency(currentSavings)}`);
-  savLabel.font = Font.boldSystemFont(8.5);
-  savLabel.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
-  savLabel.minimumScaleFactor = 0.8;
-  savLabel.lineLimit = 1;
+  const savVal = savBar.addText(formatCurrency(currentSavings));
+  savVal.font = Font.boldSystemFont(8.5);
+  savVal.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
+  savVal.minimumScaleFactor = 0.8;
+  savVal.lineLimit = 1;
 
   widget.addSpacer(3);
 
@@ -329,17 +326,17 @@ async function createMediumWidget(data) {
   sub.font = Font.systemFont(9);
   sub.textColor = new Color("#FFFFFF", 0.85);
 
-  const budSavRow = titleCol.addStack();
-  budSavRow.layoutHorizontally();
-  budSavRow.spacing = 3;
+  const savRow = titleCol.addStack();
+  savRow.layoutHorizontally();
+  savRow.spacing = 3;
 
-  const bTxt = budSavRow.addText(`BUDGET ${formatCurrency(totalBudget)} · `);
-  bTxt.font = Font.boldSystemFont(8.5);
-  bTxt.textColor = new Color("#FFFFFF", 0.85);
+  const sTitle = savRow.addText("SAVINGS: ");
+  sTitle.font = Font.boldSystemFont(8.5);
+  sTitle.textColor = new Color("#FFFFFF", 0.85);
 
-  const sTxt = budSavRow.addText(`SAVED ${formatCurrency(currentSavings)}`);
-  sTxt.font = Font.boldSystemFont(8.5);
-  sTxt.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
+  const sVal = savRow.addText(formatCurrency(currentSavings));
+  sVal.font = Font.boldSystemFont(8.5);
+  sVal.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
 
   headerRow.addSpacer();
 
