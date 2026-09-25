@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#B8B2A0">
+<title>Budgets & Savings — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <a href="index.html" class="header-brand">
+    <div class="brand-stamp">₹</div>
+    <div class="brand-text">
+      <div class="brand-title">LEDGER</div>
+      <div class="brand-sub">Smart Expense Tracker</div>
+    </div>
+  </a>
+  <nav class="nav">
+    <a href="index.html">Entry</a>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="budgets.html" class="active">Budgets</a>
+    <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+    <a href="instructions.html">Instructions</a>
+    <a href="history.html">History</a>
+    <a href="categories.html">Categories</a>
+  </nav>
+</header>
+
+<main class="page-container">
+  <!-- SQL Migration Alert (Shown only if database tables are pending) -->
+  <div class="receipt migration-banner" id="migrationAlert" style="display:none;">
+    <div class="migration-banner-title">
+      <span>⚠️ Database Setup Required</span>
+      <button type="button" class="btn-save-sm" id="copySqlBtn">Copy SQL</button>
+    </div>
+    <p style="margin:4px 0 8px;font-size:10.5px;color:var(--ink);">
+      To persist budget changes and monthly income, run this query in your <strong>Supabase Dashboard &rarr; SQL Editor</strong>.
+    </p>
+    <pre class="migration-code-box" id="migrationCode">-- Run in Supabase SQL Editor
+create table if not exists budget_settings (
+    id integer primary key default 1 check (id = 1),
+    monthly_income numeric(12, 2) not null default 0.00,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+insert into budget_settings (id, monthly_income) values (1, 0.00) on conflict (id) do nothing;
+alter table budget_settings enable row level security;
+
+create table if not exists budgets (
+    id uuid primary key default uuid_generate_v4(),
+    category text not null unique references categories(name) on update cascade on delete cascade,
+    avg_spending numeric(12, 2) not null default 0.00,
+    proposed_budget numeric(12, 2) not null default 0.00,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+alter table budgets enable row level security;
+
+with category_avg as (
+    select category, coalesce(round(avg(total_amount), 2), 0.00) as avg_monthly
+    from monthly_category_summary group by category
+)
+insert into budgets (category, avg_spending, proposed_budget)
+select c.name, coalesce(ca.avg_monthly, 0.00), coalesce(ca.avg_monthly, 0.00)
+from categories c left join category_avg ca on ca.category = c.name
+where c.type = 'variable' and c.is_active = true
+on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
+  </div>
+
+  <!-- Income & Savings Projection Card -->
+  <div class="receipt">
+    <header style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;">
+      <div>
+        <div class="eyebrow" id="monthEyebrow">MONTHLY OUTLOOK</div>
+        <h1 style="font-size:24px;margin:0;">Income & Savings</h1>
+      </div>
+      <!-- Dual Mode Switcher -->
+      <div class="budget-mode-switcher">
+        <button type="button" class="budget-mode-btn active" id="modeRealSpendBtn" title="Real consumption across all accounts (excludes CC bill settlement to prevent double counting)">Real Spend</button>
+        <button type="button" class="budget-mode-btn" id="modeBankDebitsBtn" title="Pure cash debited from your bank account this month">Bank Debits</button>
+      </div>
+    </header>
+
+    <!-- Monthly Income Container -->
+    <div class="income-box">
+      <div class="income-header-row">
+        <span class="income-label">Monthly Income</span>
+        <button type="button" class="income-edit-btn" id="editIncomeBtn">Edit</button>
+      </div>
+      <div class="income-val" id="incomeDisplay">₹0.00</div>
+
+      <!-- Hidden Edit Form -->
+      <div class="income-edit-form" id="incomeEditForm" style="display:none;">
+        <input type="number" step="100" class="income-input" id="incomeInput" placeholder="Enter monthly income">
+        <button type="button" class="btn-save-sm" id="saveIncomeBtn">Save</button>
+        <button type="button" class="btn-cancel-sm" id="cancelIncomeBtn">Cancel</button>
+      </div>
+      <div style="font-size:9.5px;color:var(--ink-faint);margin-top:4px;" id="incomeHelper">
+        Stored in database to forecast monthly savings
+      </div>
+    </div>
+
+    <!-- MTD Spend vs. Income Progress Box -->
+    <div class="spend-vs-income-box">
+      <div class="spend-vs-income-top">
+        <span class="spend-vs-income-title" id="spendMeterTitle">Actual Spend vs. Income (MTD)</span>
+        <span class="spend-vs-income-val" id="spendMeterVal">₹0.00 / ₹0.00 (0%)</span>
+      </div>
+      <div class="spend-vs-income-track" id="spendMeterTrack">
+        <div class="spend-vs-income-fill" id="spendMeterFill" style="width:0%;"></div>
+        <div class="spend-pacing-marker" id="spendPacingMarker" style="left:0%;">
+          <span class="spend-pacing-tag" id="spendPacingTag">Day 1</span>
+        </div>
+      </div>
+      <div class="spend-vs-income-bottom">
+        <span id="spendRemainingStatus">₹0.00 unspent</span>
+        <span id="spendPacingPill" style="font-weight:700;color:var(--stamp);">● On Track</span>
+      </div>
+      <div class="spend-breakdown-sub" id="spendBreakdownSub">
+        Loading spend breakdown…
+      </div>
+    </div>
+
+    <!-- Active Credit Card Cycle Banner -->
+    <div class="cc-cycle-banner" id="ccCycleBanner" style="display:none;">
+      <div>
+        <strong>💳 Credit Card Cycle (<span id="ccCycleRange">—</span>):</strong>
+        <span id="ccCycleAmount" class="cc-cycle-tag">₹0.00</span> unbilled
+      </div>
+      <span style="font-size:9.5px;color:var(--ink-faint);">Bill generates 15th · Auto-debited 1st of next month</span>
+    </div>
+
+    <!-- Savings Performance Grid -->
+    <div class="stat-grid budgets-stat-grid" style="margin-bottom:14px;">
+      <div class="stat-card">
+        <div class="label">Target Savings (Budget)</div>
+        <div class="value" id="statBudgetSavings" style="color:var(--stamp);font-size:18px;">—</div>
+        <div id="statBudgetSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" id="lblActualSavings">Current Unspent</div>
+        <div class="value" id="statActualSavings" style="font-size:18px;">—</div>
+        <div id="statActualSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Fixed Obligations</div>
+        <div class="value" id="statFixedCommitments" style="font-size:18px;">—</div>
+        <div style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">EMIs, rent, bills</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" id="lblProjectedSavings">Projected Month-End Savings</div>
+        <div class="value" id="statProjectedSavings" style="font-size:18px;">—</div>
+        <div id="statProjectedSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+    </div>
+
+    <!-- Allocation Visual Gauge -->
+    <div class="savings-gauge-wrap">
+      <label style="margin-bottom:4px;font-size:10px;">Income Allocation (Based on Budgets)</label>
+      <div class="savings-gauge" id="savingsGauge">
+        <div class="gauge-seg fixed" id="gaugeFixed" style="width:0%;" title="Fixed Obligations"></div>
+        <div class="gauge-seg variable" id="gaugeVariable" style="width:0%;" title="Variable Budgets"></div>
+        <div class="gauge-seg savings" id="gaugeSavings" style="width:0%;" title="Target Savings"></div>
+      </div>
+      <div class="gauge-legend">
+        <div class="gauge-item"><span class="gauge-dot" style="background:#6a6352;"></span> Fixed: <span id="legFixed">—</span></div>
+        <div class="gauge-item"><span class="gauge-dot" style="background:#c47c18;"></span> Variable: <span id="legVar">—</span></div>
+        <div class="gauge-item"><span class="gauge-dot" style="background:var(--stamp);"></span> Savings: <span id="legSavings">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Variable Category Budgets Card -->
+  <div class="receipt">
+    <div class="header-action-row">
+      <div>
+        <div class="eyebrow">VARIABLE CATEGORIES</div>
+        <h1 style="font-size:24px;margin:0;">Proposed Budgets</h1>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:10px;color:var(--stamp);border:1px solid var(--paper-line);padding:3px 7px;background:rgba(31,92,79,0.06);font-weight:700;letter-spacing:0.5px;">● Live Averages</span>
+        <button type="button" class="btn-auto-alloc" id="openAutoAllocBtn" title="Automatically calculate budgets based on standard frameworks">⚡ Auto-Allocate</button>
+      </div>
+    </div>
+
+    <div style="font-size:10.5px;color:var(--ink-faint);margin-bottom:14px;line-height:1.4;">
+      Avg spend reflects your historical monthly average. Enter your proposed budget below to track progress.
+    </div>
+
+    <div id="budgetItemsList">
+      <div class="empty-state">Loading budgets…</div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Totals Summary Table (Responsive 4-col on desktop) -->
+    <div class="budget-totals-grid">
+      <div class="budget-total-cell">
+        <span class="tot-label">Historical Avg Spend</span>
+        <span class="tot-val" id="totAvgSpend">₹0.00</span>
+      </div>
+      <div class="budget-total-cell">
+        <span class="tot-label">Proposed Variable Budget</span>
+        <span class="tot-val" id="totProposedBudget" style="color:var(--stamp);">₹0.00</span>
+      </div>
+      <div class="budget-total-cell">
+        <span class="tot-label">Spent This Month (Var)</span>
+        <span class="tot-val" id="totSpentThisMonth">₹0.00</span>
+      </div>
+      <div class="budget-total-cell">
+        <span class="tot-label">Total Outflow (Fixed+Var)</span>
+        <span class="tot-val" id="totBudgetedOutflow">₹0.00</span>
+      </div>
+    </div>
+
+    <div class="status" id="budgetStatus" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- Auto-Allocate Budgets Modal -->
+  <div class="modal-overlay" id="autoAllocModal" style="display:none;">
+    <div class="auto-alloc-modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="eyebrow">AUTOMATED PLANNING</div>
+          <h2 style="font-size:22px;margin:0;">⚡ Auto-Allocate Budgets</h2>
+        </div>
+        <button type="button" class="modal-close-btn" id="closeAutoAllocBtn" aria-label="Close modal">&times;</button>
+      </div>
+
+      <p class="modal-subtitle">
+        Distribute your available monthly funds across variable categories using standard financial frameworks or your custom savings target. Budgets are weighted by your actual historical spend proportions.
+      </p>
+
+      <div class="auto-alloc-modal-body">
+        <!-- Financial Base Summary -->
+        <div class="auto-alloc-base-summary">
+          <div class="alloc-base-item">
+            <span class="alloc-lbl">Monthly Income</span>
+            <span class="alloc-val" id="allocIncomeVal">₹0.00</span>
+          </div>
+          <div class="alloc-base-item">
+            <span class="alloc-lbl">Fixed Needs (Standing Orders)</span>
+            <span class="alloc-val" id="allocFixedVal">₹0.00</span>
+          </div>
+          <div class="alloc-base-item highlight">
+            <span class="alloc-lbl">Available Pool (Wants + Savings)</span>
+            <span class="alloc-val" id="allocPoolVal">₹0.00</span>
+          </div>
+        </div>
+
+        <!-- Strategy Presets -->
+        <div class="alloc-section-label">1. CHOOSE A FRAMEWORK / PRESET</div>
+        <div class="preset-pill-grid">
+          <button type="button" class="preset-pill active" data-preset="balanced" id="presetBalanced">
+            <div class="preset-name">⚖️ Balanced (Historical)</div>
+            <div class="preset-ratios" id="ratioBalanced">40% Needs · 38% Var · 22% Save</div>
+            <div class="preset-desc">Anchors variable spend to your actual historical average (~₹31k).</div>
+          </button>
+          <button type="button" class="preset-pill" data-preset="standard" id="presetStandard">
+            <div class="preset-name">📐 Standard 50/30/20</div>
+            <div class="preset-ratios" id="ratioStandard">40% Needs · 30% Var · 30% Save</div>
+            <div class="preset-desc">Classic rule adapted to your 40% fixed commitments (₹24.3k variable, ₹24.2k savings).</div>
+          </button>
+          <button type="button" class="preset-pill" data-preset="aggressive" id="presetAggressive">
+            <div class="preset-name">🔥 Aggressive FIRE</div>
+            <div class="preset-ratios" id="ratioAggressive">40% Needs · 25% Var · 35% Save</div>
+            <div class="preset-desc">Maximizes wealth accumulation (₹20.3k variable, ₹28.3k savings).</div>
+          </button>
+          <button type="button" class="preset-pill" data-preset="custom" id="presetCustom">
+            <div class="preset-name">⚙️ Custom Target</div>
+            <div class="preset-ratios" id="ratioCustom">Interactive Savings Slider</div>
+            <div class="preset-desc">Slide to set your exact target monthly savings percentage.</div>
+          </button>
+        </div>
+
+        <!-- Custom Savings Slider Box (Interactive) -->
+        <div class="alloc-slider-box" id="allocSliderBox">
+          <div class="alloc-slider-header">
+            <span>Target Monthly Savings Rate:</span>
+            <span class="alloc-slider-val" id="allocSavingsRateDisplay">22% (₹17,504.00)</span>
+          </div>
+          <input type="range" min="5" max="50" step="1" value="22" id="allocSavingsSlider" class="alloc-range-slider">
+          <div class="alloc-slider-sub">
+            <span>Resulting Variable Budget Pool: <strong id="allocVarPoolDisplay">₹31,062.00</strong></span>
+            <span>Fixed Commitments: <strong id="allocFixedSubDisplay">₹32,530.80</strong></span>
+          </div>
+        </div>
+
+        <!-- Preview Table -->
+        <div class="alloc-section-label" style="margin-top:14px;">2. PROPORTIONAL BREAKDOWN (HISTORICAL SPEND SHARE)</div>
+        <div class="alloc-preview-table-wrap">
+          <table class="alloc-preview-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">Category</th>
+                <th style="text-align:right;">Share</th>
+                <th style="text-align:right;">Hist. Avg</th>
+                <th style="text-align:right;">Current</th>
+                <th style="text-align:right;">Proposed (₹)</th>
+                <th style="text-align:right;">Net Change</th>
+              </tr>
+            </thead>
+            <tbody id="allocPreviewTableBody">
+              <!-- populated dynamically -->
+            </tbody>
+            <tfoot>
+              <tr class="alloc-table-total-row">
+                <td style="text-align:left;">Total Variable Budget</td>
+                <td style="text-align:right;">100%</td>
+                <td style="text-align:right;" id="allocFootHist">—</td>
+                <td style="text-align:right;" id="allocFootCurrent">—</td>
+                <td style="text-align:right;color:var(--stamp);" id="allocFootProposed">—</td>
+                <td style="text-align:right;" id="allocFootChange">—</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Impact Summary Banner -->
+        <div class="alloc-impact-banner" id="allocImpactBanner">
+          <div>
+            <span>Projected Monthly Savings: </span>
+            <strong id="allocImpactSavingsVal" style="color:var(--stamp);font-size:12px;">₹0.00 (0%)</strong>
+          </div>
+          <span style="font-size:9.5px;color:var(--ink-faint);">Rounded to nearest ₹50 for clean bookkeeping</span>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="modal-actions-row">
+        <button type="button" class="btn-cancel-sm" id="cancelAutoAllocBtn">Cancel</button>
+        <button type="button" class="btn-apply-auto" id="applyAutoAllocBtn">⚡ Apply These Budgets</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+  let cachedData = null;
+  const statusEl = document.getElementById('budgetStatus');
+
+  function showStatus(msg, isError = false) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'status error' : 'status';
+    setTimeout(() => {
+      if (statusEl.textContent === msg) statusEl.textContent = '';
+    }, 4000);
+  }
+
+  // --- Copy SQL for pending migration ---
+  document.getElementById('copySqlBtn').addEventListener('click', () => {
+    const code = document.getElementById('migrationCode').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('copySqlBtn');
+      btn.textContent = 'Copied! ✓';
+      setTimeout(() => btn.textContent = 'Copy SQL', 2000);
+    });
+  });
+
+  // --- Income Edit Toggle & Save ---
+  const editIncomeBtn = document.getElementById('editIncomeBtn');
+  const incomeDisplay = document.getElementById('incomeDisplay');
+  const incomeEditForm = document.getElementById('incomeEditForm');
+  const incomeInput = document.getElementById('incomeInput');
+  const saveIncomeBtn = document.getElementById('saveIncomeBtn');
+  const cancelIncomeBtn = document.getElementById('cancelIncomeBtn');
+
+  editIncomeBtn.addEventListener('click', () => {
+    incomeInput.value = cachedData ? cachedData.monthly_income : 0;
+    incomeDisplay.style.display = 'none';
+    editIncomeBtn.style.display = 'none';
+    incomeEditForm.style.display = 'flex';
+    incomeInput.focus();
+  });
+
+  cancelIncomeBtn.addEventListener('click', () => {
+    incomeEditForm.style.display = 'none';
+    incomeDisplay.style.display = 'block';
+    editIncomeBtn.style.display = 'inline-block';
+  });
+
+  saveIncomeBtn.addEventListener('click', async () => {
+    const val = parseFloat(incomeInput.value);
+    if (isNaN(val) || val < 0) {
+      showStatus('Enter a valid positive income amount', true);
+      return;
+    }
+    saveIncomeBtn.disabled = true;
+    saveIncomeBtn.textContent = 'Saving…';
+    try {
+      await apiFetch('/budget-settings', {
+        method: 'POST',
+        body: JSON.stringify({ monthly_income: val })
+      });
+      incomeEditForm.style.display = 'none';
+      incomeDisplay.style.display = 'block';
+      editIncomeBtn.style.display = 'inline-block';
+      showStatus('Monthly income saved ✓');
+      loadBudgets();
+    } catch (e) {
+      showStatus(e.message, true);
+    } finally {
+      saveIncomeBtn.disabled = false;
+      saveIncomeBtn.textContent = 'Save';
+    }
+  });
+  let currentBudgetMode = 'real'; // 'real' | 'cash'
+
+  const modeRealSpendBtn = document.getElementById('modeRealSpendBtn');
+  const modeBankDebitsBtn = document.getElementById('modeBankDebitsBtn');
+
+  if (modeRealSpendBtn && modeBankDebitsBtn) {
+    modeRealSpendBtn.addEventListener('click', () => {
+      if (currentBudgetMode === 'real') return;
+      currentBudgetMode = 'real';
+      modeRealSpendBtn.classList.add('active');
+      modeBankDebitsBtn.classList.remove('active');
+      if (cachedData) renderBudgetData(cachedData);
+    });
+
+    modeBankDebitsBtn.addEventListener('click', () => {
+      if (currentBudgetMode === 'cash') return;
+      currentBudgetMode = 'cash';
+      modeBankDebitsBtn.classList.add('active');
+      modeRealSpendBtn.classList.remove('active');
+      if (cachedData) renderBudgetData(cachedData);
+    });
+  }
+
+  // --- Render UI ---
+  function renderBudgetData(data) {
+    cachedData = data;
+    const meta = data.meta || {};
+    const totals = data.totals || {};
+    const savings = data.savings || {};
+    const inc = Number(data.monthly_income || 0);
+
+    // Schema migration banner
+    const alertEl = document.getElementById('migrationAlert');
+    if (alertEl) {
+      alertEl.style.display = (meta.schema_ready === false) ? 'block' : 'none';
+    }
+
+    if (meta.month) {
+      document.getElementById('monthEyebrow').textContent = `${meta.month.toUpperCase()} OUTLOOK`;
+    }
+
+    // Monthly Income
+    incomeDisplay.textContent = formatRupees(inc);
+
+    const isReal = (currentBudgetMode === 'real');
+    const budgetSav = savings.based_on_budget || {};
+    const activeSavings = isReal ? (savings.based_on_spending || {}) : (savings.based_on_cash_flow || {});
+
+    const activeSpent = Number(activeSavings.current_spent ?? (isReal ? totals.current_month_total_spent : totals.bank_cash_outflow) ?? 0);
+    const activeUnspent = Number(activeSavings.current_savings ?? (inc - activeSpent));
+    const activeUnspentRate = Number(activeSavings.current_savings_rate ?? (inc > 0 ? (activeUnspent / inc * 100) : 0));
+    const activeProjSpend = Number(activeSavings.projected_month_end_spend ?? 0);
+    const activeProjSavings = Number(activeSavings.projected_month_end_savings ?? 0);
+    const activeProjRate = Number(activeSavings.projected_savings_rate ?? 0);
+
+    // 1. Spend vs. Income Progress Meter
+    const spendPct = inc > 0 ? (activeSpent / inc) * 100 : 0;
+    const daysElapsed = meta.days_elapsed || 1;
+    const daysInMonth = meta.days_in_month || 30;
+    const monthElapsedPct = (daysElapsed / daysInMonth) * 100;
+
+    const meterTitleEl = document.getElementById('spendMeterTitle');
+    if (meterTitleEl) {
+      meterTitleEl.textContent = isReal
+        ? 'Actual Spend vs. Income (MTD · Real Outflow)'
+        : 'Bank Cash Debits vs. Income (MTD · Cash Basis)';
+    }
+
+    const meterValEl = document.getElementById('spendMeterVal');
+    if (meterValEl) {
+      meterValEl.textContent = `${formatRupees(activeSpent)} / ${formatRupees(inc)} (${spendPct.toFixed(1)}%)`;
+    }
+
+    const spendFillEl = document.getElementById('spendMeterFill');
+    if (spendFillEl) {
+      spendFillEl.style.width = `${Math.min(100, Math.max(0, spendPct))}%`;
+      if (spendPct > 100) {
+        spendFillEl.className = 'spend-vs-income-fill danger';
+      } else if (spendPct > monthElapsedPct) {
+        spendFillEl.className = 'spend-vs-income-fill warning';
+      } else {
+        spendFillEl.className = 'spend-vs-income-fill';
+      }
+    }
+
+    const pacingMarker = document.getElementById('spendPacingMarker');
+    if (pacingMarker) {
+      pacingMarker.style.left = `${Math.min(100, Math.max(0, monthElapsedPct))}%`;
+    }
+    const pacingTag = document.getElementById('spendPacingTag');
+    if (pacingTag) {
+      pacingTag.textContent = `Day ${daysElapsed}/${daysInMonth}`;
+    }
+
+    const remainingStatusEl = document.getElementById('spendRemainingStatus');
+    const pacingPillEl = document.getElementById('spendPacingPill');
+
+    if (remainingStatusEl) {
+      if (activeUnspent >= 0) {
+        remainingStatusEl.textContent = `${formatRupees(activeUnspent)} unspent (${activeUnspentRate.toFixed(1)}% remaining)`;
+        remainingStatusEl.style.color = 'var(--ink)';
+      } else {
+        remainingStatusEl.textContent = `${formatRupees(Math.abs(activeUnspent))} over monthly income`;
+        remainingStatusEl.style.color = 'var(--debit)';
+      }
+    }
+
+    if (pacingPillEl) {
+      const expectedSpendAtPace = inc > 0 ? (inc * (monthElapsedPct / 100)) : 0;
+      const pacingDiff = expectedSpendAtPace - activeSpent;
+
+      if (inc > 0) {
+        if (spendPct > 100) {
+          pacingPillEl.textContent = `▲ Over Income by ${formatRupees(activeSpent - inc)}`;
+          pacingPillEl.style.color = 'var(--debit)';
+        } else if (pacingDiff >= 0) {
+          pacingPillEl.textContent = `● Under Pace by ${formatRupees(pacingDiff)} (Healthy)`;
+          pacingPillEl.style.color = 'var(--stamp)';
+        } else {
+          pacingPillEl.textContent = `▲ High Burn Rate (Over pace by ${formatRupees(Math.abs(pacingDiff))})`;
+          pacingPillEl.style.color = '#c47c18';
+        }
+      } else {
+        pacingPillEl.textContent = 'Set income to calculate pacing';
+        pacingPillEl.style.color = 'var(--ink-faint)';
+      }
+    }
+
+    const breakdownSubEl = document.getElementById('spendBreakdownSub');
+    if (breakdownSubEl) {
+      if (isReal) {
+        breakdownSubEl.innerHTML = `<strong>Real Outflow:</strong> ${formatRupees(totals.debit_spend_net || 0)} Debit + ${formatRupees(totals.credit_spend_total || 0)} Credit Card · <em>Excludes ${formatRupees(totals.credit_card_bill_payments || 0)} CC bill debt payment to eliminate double counting</em>`;
+      } else {
+        breakdownSubEl.innerHTML = `<strong>Bank Cash Outflow:</strong> ${formatRupees(totals.debit_spend_net || 0)} Daily Bank Debits + ${formatRupees(totals.credit_card_bill_payments || 0)} CC Bill Paid · <em>Actual rupees debited from your bank account</em>`;
+      }
+    }
+
+    // 2. Active Credit Card Cycle Banner
+    const ccCycle = totals.credit_card_cycle;
+    const bannerEl = document.getElementById('ccCycleBanner');
+    if (bannerEl && ccCycle && ccCycle.cycle_range) {
+      bannerEl.style.display = 'flex';
+      const rangeEl = document.getElementById('ccCycleRange');
+      if (rangeEl) rangeEl.textContent = ccCycle.cycle_range;
+      const amtEl = document.getElementById('ccCycleAmount');
+      if (amtEl) amtEl.textContent = formatRupees(ccCycle.cycle_total || 0);
+    }
+
+    // 3. Savings Cards
+    const bSavVal = Number(budgetSav.projected_savings || 0);
+    const bSavRate = Number(budgetSav.savings_rate || 0);
+    const statBudgetEl = document.getElementById('statBudgetSavings');
+    statBudgetEl.textContent = formatRupees(bSavVal);
+    statBudgetEl.style.color = bSavVal >= 0 ? 'var(--stamp)' : 'var(--debit)';
+    document.getElementById('statBudgetSavingsRate').textContent = inc > 0 ? `${bSavRate}% of income` : 'Set income above';
+
+    const lblActualEl = document.getElementById('lblActualSavings');
+    if (lblActualEl) {
+      lblActualEl.textContent = isReal ? 'Current Unspent' : 'Bank Cash Remaining';
+    }
+    const statActualEl = document.getElementById('statActualSavings');
+    statActualEl.textContent = formatRupees(activeUnspent);
+    statActualEl.style.color = activeUnspent >= 0 ? 'var(--stamp)' : 'var(--debit)';
+    document.getElementById('statActualSavingsRate').textContent = inc > 0 ? `${formatRupees(activeSpent)} spent (${spendPct.toFixed(1)}%)` : '—';
+
+    document.getElementById('statFixedCommitments').textContent = formatRupees(totals.fixed_obligations || 0);
+
+    const lblProjEl = document.getElementById('lblProjectedSavings');
+    if (lblProjEl) {
+      lblProjEl.textContent = isReal ? 'Projected Month-End Savings' : 'Projected Cash Savings';
+    }
+    const statProjEl = document.getElementById('statProjectedSavings');
+    statProjEl.textContent = formatRupees(activeProjSavings);
+    statProjEl.style.color = activeProjSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+    document.getElementById('statProjectedSavingsRate').textContent = inc > 0 ? `${activeProjRate}% (Day ${daysElapsed}/${daysInMonth})` : '—';
+
+    // 4. Allocation Gauge
+    if (inc > 0) {
+      const fixedPct = Math.min(100, Math.max(0, (totals.fixed_obligations / inc) * 100));
+      const varPct = Math.min(100 - fixedPct, Math.max(0, (totals.total_proposed_variable_budget / inc) * 100));
+      const savPct = Math.max(0, 100 - fixedPct - varPct);
+
+      document.getElementById('gaugeFixed').style.width = `${fixedPct}%`;
+      document.getElementById('gaugeVariable').style.width = `${varPct}%`;
+      document.getElementById('gaugeSavings').style.width = `${savPct}%`;
+
+      document.getElementById('legFixed').textContent = `${formatRupees(totals.fixed_obligations)} (${fixedPct.toFixed(1)}%)`;
+      document.getElementById('legVar').textContent = `${formatRupees(totals.total_proposed_variable_budget)} (${varPct.toFixed(1)}%)`;
+      document.getElementById('legSavings').textContent = `${formatRupees(bSavVal)} (${savPct.toFixed(1)}%)`;
+    } else {
+      document.getElementById('gaugeFixed').style.width = '50%';
+      document.getElementById('gaugeVariable').style.width = '50%';
+      document.getElementById('gaugeSavings').style.width = '0%';
+      document.getElementById('legFixed').textContent = formatRupees(totals.fixed_obligations);
+      document.getElementById('legVar').textContent = formatRupees(totals.total_proposed_variable_budget);
+      document.getElementById('legSavings').textContent = 'Set income';
+    }
+
+    // 5. Category Items List
+    const listEl = document.getElementById('budgetItemsList');
+    const categories = data.categories || [];
+
+    if (categories.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">No variable categories found</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    categories.forEach(cat => {
+      const item = document.createElement('div');
+      item.className = 'budget-item';
+
+      const pct = Math.min(100, Math.max(0, cat.percent_used));
+      const statusClass = cat.status || 'ok';
+      const remainingLabel = cat.remaining >= 0
+        ? `₹${cat.remaining.toFixed(2)} left`
+        : `₹${Math.abs(cat.remaining).toFixed(2)} over`;
+
+      item.innerHTML = `
+        <div class="budget-top-row">
+          <div class="budget-cat-name">${cat.category}</div>
+          <div class="budget-avg-pill">Avg: ${formatRupees(cat.avg_spending)}/mo</div>
+        </div>
+
+        <div class="budget-middle-col">
+          <div class="budget-progress-track">
+            <div class="budget-progress-fill ${statusClass}" style="width:${pct}%"></div>
+          </div>
+          <div class="budget-meta-row">
+            <span>Spent: ${formatRupees(cat.this_month_spent)} (${cat.percent_used}%)</span>
+            <span class="budget-status-tag ${statusClass}">${remainingLabel}</span>
+          </div>
+        </div>
+
+        <div class="budget-controls-row">
+          <div class="budget-input-wrap">
+            <span>₹</span>
+            <input type="number" step="100" class="budget-input" data-cat="${cat.category}" value="${cat.proposed_budget}">
+          </div>
+          <button type="button" class="budget-save-btn" data-cat="${cat.category}">Save</button>
+        </div>
+      `;
+      listEl.appendChild(item);
+    });
+
+    // Attach listeners to budget save buttons and inputs
+    document.querySelectorAll('.budget-save-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const catName = btn.dataset.cat;
+        const input = document.querySelector(`.budget-input[data-cat="${catName}"]`);
+        if (!input) return;
+        const proposed = parseFloat(input.value);
+        if (isNaN(proposed) || proposed < 0) {
+          showStatus(`Enter a valid budget for ${catName}`, true);
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+          await apiFetch(`/budgets/${encodeURIComponent(catName)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ proposed_budget: proposed })
+          });
+          btn.textContent = 'Saved ✓';
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = 'Save';
+            loadBudgets();
+          }, 600);
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = 'Save';
+          showStatus(e.message, true);
+        }
+      });
+    });
+
+    // 6. Totals Table
+    document.getElementById('totAvgSpend').textContent = formatRupees(totals.total_variable_avg_spending || 0);
+    document.getElementById('totProposedBudget').textContent = formatRupees(totals.total_proposed_variable_budget || 0);
+    document.getElementById('totSpentThisMonth').textContent = formatRupees(totals.current_month_variable_spent || 0);
+    document.getElementById('totBudgetedOutflow').textContent = formatRupees(totals.total_budgeted_outflow || 0);
+  }
+
+  async function loadBudgets() {
+    try {
+      const data = await apiFetch('/budgets');
+      renderBudgetData(data);
+    } catch (e) {
+      document.getElementById('budgetItemsList').innerHTML =
+        `<div class="empty-state">Could not load budgets: ${e.message}</div>`;
+      showStatus(e.message, true);
+    }
+  }
+
+  loadBudgets();
+
+  // ============================================================
+  // Auto-Allocate Budgets Modal Logic
+  // ============================================================
+  const autoAllocModal = document.getElementById('autoAllocModal');
+  const openAutoAllocBtn = document.getElementById('openAutoAllocBtn');
+  const closeAutoAllocBtn = document.getElementById('closeAutoAllocBtn');
+  const cancelAutoAllocBtn = document.getElementById('cancelAutoAllocBtn');
+  const applyAutoAllocBtn = document.getElementById('applyAutoAllocBtn');
+
+  const allocIncomeVal = document.getElementById('allocIncomeVal');
+  const allocFixedVal = document.getElementById('allocFixedVal');
+  const allocPoolVal = document.getElementById('allocPoolVal');
+
+  const presetBalancedBtn = document.getElementById('presetBalanced');
+  const presetStandardBtn = document.getElementById('presetStandard');
+  const presetAggressiveBtn = document.getElementById('presetAggressive');
+  const presetCustomBtn = document.getElementById('presetCustom');
+
+  const allocSavingsSlider = document.getElementById('allocSavingsSlider');
+  const allocSavingsRateDisplay = document.getElementById('allocSavingsRateDisplay');
+  const allocVarPoolDisplay = document.getElementById('allocVarPoolDisplay');
+  const allocFixedSubDisplay = document.getElementById('allocFixedSubDisplay');
+
+  const allocPreviewTableBody = document.getElementById('allocPreviewTableBody');
+  const allocFootHist = document.getElementById('allocFootHist');
+  const allocFootCurrent = document.getElementById('allocFootCurrent');
+  const allocFootProposed = document.getElementById('allocFootProposed');
+  const allocFootChange = document.getElementById('allocFootChange');
+  const allocImpactSavingsVal = document.getElementById('allocImpactSavingsVal');
+
+  let allocState = {
+    income: 0,
+    fixed: 0,
+    pool: 0,
+    histTotal: 0,
+    activePreset: 'balanced',
+    targetSavingsRate: 22,
+    targetSavings: 0,
+    targetVarPool: 0,
+    categories: [],
+    proposals: {}
+  };
+
+  function openAutoAllocModal() {
+    if (!cachedData || Number(cachedData.monthly_income || 0) <= 0) {
+      showStatus('Please set your Monthly Income first to auto-allocate budgets', true);
+      if (editIncomeBtn) editIncomeBtn.click();
+      return;
+    }
+
+    const inc = Number(cachedData.monthly_income || 0);
+    const fixed = Number(cachedData.totals?.fixed_obligations || 0);
+    const pool = Math.max(0, inc - fixed);
+    const histTotal = Number(cachedData.totals?.total_variable_avg_spending || 0);
+    const cats = (cachedData.categories || []).map(c => ({
+      category: c.category,
+      avg_spending: Number(c.avg_spending || 0),
+      proposed_budget: Number(c.proposed_budget || 0)
+    }));
+
+    allocState.income = inc;
+    allocState.fixed = fixed;
+    allocState.pool = pool;
+    allocState.histTotal = histTotal;
+    allocState.categories = cats;
+    allocState.proposals = {};
+
+    // Populate base summary
+    const fixedPct = inc > 0 ? (fixed / inc) * 100 : 0;
+    const poolPct = inc > 0 ? (pool / inc) * 100 : 0;
+    allocIncomeVal.textContent = formatRupees(inc);
+    allocFixedVal.textContent = `${formatRupees(fixed)} (${fixedPct.toFixed(1)}%)`;
+    allocPoolVal.textContent = `${formatRupees(pool)} (${poolPct.toFixed(1)}%)`;
+    allocFixedSubDisplay.textContent = formatRupees(fixed);
+
+    // Update preset ratios based on actual user numbers
+    // 1. Balanced: uses historical average variable spend
+    const balancedVar = histTotal;
+    const balancedSav = Math.max(0, inc - fixed - balancedVar);
+    const balancedSavPct = inc > 0 ? (balancedSav / inc) * 100 : 0;
+    const balancedVarPct = inc > 0 ? (balancedVar / inc) * 100 : 0;
+    document.getElementById('ratioBalanced').textContent =
+      `${fixedPct.toFixed(0)}% Needs · ${balancedVarPct.toFixed(0)}% Var · ${balancedSavPct.toFixed(0)}% Save`;
+
+    // 2. Standard 50/30/20 adapted to their ~40% needs (40/30/30)
+    const stdVar = Math.round(inc * 0.30);
+    const stdSav = Math.max(0, inc - fixed - stdVar);
+    const stdSavPct = inc > 0 ? (stdSav / inc) * 100 : 0;
+    document.getElementById('ratioStandard').textContent =
+      `${fixedPct.toFixed(0)}% Needs · 30% Var · ${stdSavPct.toFixed(0)}% Save`;
+
+    // 3. Aggressive FIRE (40/25/35)
+    const aggVar = Math.round(inc * 0.25);
+    const aggSav = Math.max(0, inc - fixed - aggVar);
+    const aggSavPct = inc > 0 ? (aggSav / inc) * 100 : 0;
+    document.getElementById('ratioAggressive').textContent =
+      `${fixedPct.toFixed(0)}% Needs · 25% Var · ${aggSavPct.toFixed(0)}% Save`;
+
+    selectPreset('balanced');
+    autoAllocModal.style.display = 'flex';
+  }
+
+  function closeAutoAllocModal() {
+    autoAllocModal.style.display = 'none';
+  }
+
+  function selectPreset(presetKey) {
+    allocState.activePreset = presetKey;
+
+    [presetBalancedBtn, presetStandardBtn, presetAggressiveBtn, presetCustomBtn].forEach(btn => {
+      if (btn) btn.classList.toggle('active', btn.dataset.preset === presetKey);
+    });
+
+    const inc = allocState.income;
+    const fixed = allocState.fixed;
+    let targetVar = 0;
+    let targetSav = 0;
+    let targetSavRate = 20;
+
+    if (presetKey === 'balanced') {
+      targetVar = allocState.histTotal;
+      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
+    } else if (presetKey === 'standard') {
+      targetVar = Math.round(inc * 0.30);
+      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
+    } else if (presetKey === 'aggressive') {
+      targetVar = Math.round(inc * 0.25);
+      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
+    } else if (presetKey === 'custom') {
+      targetSavRate = parseFloat(allocSavingsSlider.value) || 20;
+      targetSav = inc * (targetSavRate / 100);
+      targetVar = Math.max(0, inc - fixed - targetSav);
+    }
+
+    allocState.targetVarPool = Math.round(targetVar);
+    allocState.targetSavings = Math.round(targetSav);
+    allocState.targetSavingsRate = targetSavRate;
+
+    if (presetKey !== 'custom' && allocSavingsSlider) {
+      allocSavingsSlider.value = Math.round(targetSavRate);
+    }
+
+    allocSavingsRateDisplay.textContent = `${targetSavRate.toFixed(1)}% (${formatRupees(targetSav)})`;
+    allocVarPoolDisplay.textContent = formatRupees(targetVar);
+
+    calculateProportions(targetVar);
+    renderAllocPreview();
+  }
+
+  function calculateProportions(targetVarPool) {
+    const cats = allocState.categories;
+    const histTotal = allocState.histTotal;
+    const n = cats.length;
+    if (n === 0) return;
+
+    let sumRounded = 0;
+    let maxCat = cats[0].category;
+    let maxVal = -1;
+
+    cats.forEach(c => {
+      let rawVal = 0;
+      if (histTotal > 0) {
+        rawVal = targetVarPool * (c.avg_spending / histTotal);
+      } else {
+        rawVal = targetVarPool / n;
+      }
+      const rounded = Math.round(rawVal / 50) * 50;
+      allocState.proposals[c.category] = rounded;
+      sumRounded += rounded;
+
+      if (rounded > maxVal) {
+        maxVal = rounded;
+        maxCat = c.category;
+      }
+    });
+
+    const diff = targetVarPool - sumRounded;
+    if (diff !== 0 && maxCat) {
+      allocState.proposals[maxCat] = Math.max(0, allocState.proposals[maxCat] + diff);
+    }
+  }
+
+  function renderAllocPreview() {
+    if (!allocPreviewTableBody) return;
+    allocPreviewTableBody.innerHTML = '';
+
+    const cats = allocState.categories;
+    const histTotal = allocState.histTotal;
+    let totCurrent = 0;
+    let totProposed = 0;
+
+    cats.forEach(c => {
+      const hist = c.avg_spending || 0;
+      const cur = c.proposed_budget || 0;
+      const prop = allocState.proposals[c.category] ?? cur;
+      const share = histTotal > 0 ? ((hist / histTotal) * 100).toFixed(1) : (100 / cats.length).toFixed(1);
+      const diff = prop - cur;
+
+      totCurrent += cur;
+      totProposed += prop;
+
+      let diffHtml = '';
+      if (diff > 0) {
+        diffHtml = `<span class="alloc-diff-positive">+${formatRupees(diff)}</span>`;
+      } else if (diff < 0) {
+        diffHtml = `<span class="alloc-diff-negative">-${formatRupees(Math.abs(diff))}</span>`;
+      } else {
+        diffHtml = `<span class="alloc-diff-neutral">₹0.00</span>`;
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="alloc-table-cat">${c.category}</td>
+        <td style="text-align:right;color:var(--ink-faint);">${share}%</td>
+        <td style="text-align:right;">${formatRupees(hist)}</td>
+        <td style="text-align:right;color:var(--ink-faint);">${formatRupees(cur)}</td>
+        <td style="text-align:right;">
+          <input type="number" step="50" min="0" class="alloc-input" data-cat="${c.category}" value="${prop}">
+        </td>
+        <td style="text-align:right;">${diffHtml}</td>
+      `;
+      allocPreviewTableBody.appendChild(tr);
+    });
+
+    allocPreviewTableBody.querySelectorAll('.alloc-input').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const cat = e.target.dataset.cat;
+        const val = Math.max(0, parseFloat(e.target.value) || 0);
+        allocState.proposals[cat] = val;
+        recalculateFromProposals();
+      });
+    });
+
+    allocFootHist.textContent = formatRupees(histTotal);
+    allocFootCurrent.textContent = formatRupees(totCurrent);
+    allocFootProposed.textContent = formatRupees(totProposed);
+    const totDiff = totProposed - totCurrent;
+    if (totDiff > 0) {
+      allocFootChange.innerHTML = `<span class="alloc-diff-positive">+${formatRupees(totDiff)}</span>`;
+    } else if (totDiff < 0) {
+      allocFootChange.innerHTML = `<span class="alloc-diff-negative">-${formatRupees(Math.abs(totDiff))}</span>`;
+    } else {
+      allocFootChange.innerHTML = `<span class="alloc-diff-neutral">₹0.00</span>`;
+    }
+
+    updateImpactBanner(totProposed);
+  }
+
+  function recalculateFromProposals() {
+    let totProposed = 0;
+    for (const cat in allocState.proposals) {
+      totProposed += Number(allocState.proposals[cat] || 0);
+    }
+    allocFootProposed.textContent = formatRupees(totProposed);
+
+    const totCurrent = allocState.categories.reduce((acc, c) => acc + Number(c.proposed_budget || 0), 0);
+    const totDiff = totProposed - totCurrent;
+    if (totDiff > 0) {
+      allocFootChange.innerHTML = `<span class="alloc-diff-positive">+${formatRupees(totDiff)}</span>`;
+    } else if (totDiff < 0) {
+      allocFootChange.innerHTML = `<span class="alloc-diff-negative">-${formatRupees(Math.abs(totDiff))}</span>`;
+    } else {
+      allocFootChange.innerHTML = `<span class="alloc-diff-neutral">₹0.00</span>`;
+    }
+
+    updateImpactBanner(totProposed);
+  }
+
+  function updateImpactBanner(totProposed) {
+    const inc = allocState.income;
+    const fixed = allocState.fixed;
+    const savings = inc - fixed - totProposed;
+    const savRate = inc > 0 ? (savings / inc) * 100 : 0;
+
+    allocImpactSavingsVal.textContent = `${formatRupees(savings)} (${savRate.toFixed(1)}% of income)`;
+    allocImpactSavingsVal.style.color = savings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+  }
+
+  [
+    { btn: presetBalancedBtn, key: 'balanced' },
+    { btn: presetStandardBtn, key: 'standard' },
+    { btn: presetAggressiveBtn, key: 'aggressive' },
+    { btn: presetCustomBtn, key: 'custom' }
+  ].forEach(({ btn, key }) => {
+    if (btn) {
+      btn.addEventListener('click', () => selectPreset(key));
+    }
+  });
+
+  if (allocSavingsSlider) {
+    allocSavingsSlider.addEventListener('input', (e) => {
+      allocState.activePreset = 'custom';
+      [presetBalancedBtn, presetStandardBtn, presetAggressiveBtn].forEach(b => b && b.classList.remove('active'));
+      if (presetCustomBtn) presetCustomBtn.classList.add('active');
+
+      const rate = parseFloat(e.target.value) || 0;
+      const inc = allocState.income;
+      const fixed = allocState.fixed;
+      const sav = inc * (rate / 100);
+      const varPool = Math.max(0, inc - fixed - sav);
+
+      allocState.targetSavingsRate = rate;
+      allocState.targetSavings = Math.round(sav);
+      allocState.targetVarPool = Math.round(varPool);
+
+      allocSavingsRateDisplay.textContent = `${rate.toFixed(1)}% (${formatRupees(sav)})`;
+      allocVarPoolDisplay.textContent = formatRupees(varPool);
+
+      calculateProportions(varPool);
+      renderAllocPreview();
+    });
+  }
+
+  if (openAutoAllocBtn) openAutoAllocBtn.addEventListener('click', openAutoAllocModal);
+  if (closeAutoAllocBtn) closeAutoAllocBtn.addEventListener('click', closeAutoAllocModal);
+  if (cancelAutoAllocBtn) cancelAutoAllocBtn.addEventListener('click', closeAutoAllocModal);
+
+  if (autoAllocModal) {
+    autoAllocModal.addEventListener('click', (e) => {
+      if (e.target === autoAllocModal) closeAutoAllocModal();
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && autoAllocModal && autoAllocModal.style.display !== 'none') {
+      closeAutoAllocModal();
+    }
+  });
+
+  if (applyAutoAllocBtn) {
+    applyAutoAllocBtn.addEventListener('click', async () => {
+      const proposals = allocState.proposals;
+      const count = Object.keys(proposals).length;
+      if (count === 0) {
+        showStatus('No categories to update', true);
+        return;
+      }
+
+      applyAutoAllocBtn.disabled = true;
+      applyAutoAllocBtn.textContent = 'Applying…';
+
+      try {
+        await apiFetch('/budgets/batch', {
+          method: 'POST',
+          body: JSON.stringify({ budgets: proposals })
+        });
+
+        closeAutoAllocModal();
+        showStatus(`Auto-allocated ${count} category budgets ✓`);
+        await loadBudgets();
+      } catch (err) {
+        showStatus(`Failed to apply budgets: ${err.message}`, true);
+      } finally {
+        applyAutoAllocBtn.disabled = false;
+        applyAutoAllocBtn.textContent = '⚡ Apply These Budgets';
+      }
+    });
+  }
+</script>
+</body>
+</html>

@@ -13,35 +13,58 @@
 </head>
 <body>
 
-<nav class="nav">
-  <a href="index.html">Entry</a>
-  <a href="dashboard.html">Dashboard</a>
-  <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
-  <a href="instructions.html">Instructions</a>
-  <a href="history.html" class="active">History</a>
-  <a href="categories.html">Categories</a>
-</nav>
+<header class="app-header">
+  <a href="index.html" class="header-brand">
+    <div class="brand-stamp">₹</div>
+    <div class="brand-text">
+      <div class="brand-title">LEDGER</div>
+      <div class="brand-sub">Smart Expense Tracker</div>
+    </div>
+  </a>
+  <nav class="nav">
+    <a href="index.html">Entry</a>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="budgets.html">Budgets</a>
+    <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+    <a href="instructions.html">Instructions</a>
+    <a href="history.html" class="active">History</a>
+    <a href="categories.html">Categories</a>
+  </nav>
+</header>
 
-<div class="receipt">
-  <header>
-    <div class="eyebrow">LAST 30 TRANSACTIONS</div>
-    <h1 style="font-size:24px;">History</h1>
-  </header>
+<main class="page-container">
+  <div class="receipt">
+    <header>
+      <div class="eyebrow">LAST 30 TRANSACTIONS</div>
+      <h1 style="font-size:24px;">History</h1>
+    </header>
 
-  <div class="status" id="status"></div>
+    <div class="search-bar-wrap">
+      <input type="text" id="historySearch" class="search-input" placeholder="🔍 Search expenses by payee or category...">
+    </div>
 
-  <div id="historyList">
-    <div class="empty-state">Loading recent expenses…</div>
+    <div class="status" id="status"></div>
+
+    <div id="historyList">
+      <div class="empty-state">Loading recent expenses…</div>
+    </div>
   </div>
-</div>
+</main>
 
 <script src="config.js"></script>
 <script>
   let recentExpenses = [];
   let availableCategories = [];
+  let searchFilter = '';
 
   const statusEl = document.getElementById('status');
   const historyListEl = document.getElementById('historyList');
+  const searchInputEl = document.getElementById('historySearch');
+
+  searchInputEl.addEventListener('input', (e) => {
+    searchFilter = e.target.value.toLowerCase().trim();
+    renderHistory();
+  });
 
   function showStatus(msg, isError = false) {
     statusEl.textContent = msg;
@@ -67,13 +90,21 @@
   }
 
   function renderHistory() {
-    if (recentExpenses.length === 0) {
-      historyListEl.innerHTML = '<div class="empty-state">No recent expenses found</div>';
+    let items = recentExpenses;
+    if (searchFilter) {
+      items = recentExpenses.filter(item => {
+        const text = `${item.expense || ''} ${item.category || ''} ${item.expense_type || ''} ${item.expense_date || ''}`.toLowerCase();
+        return text.includes(searchFilter);
+      });
+    }
+
+    if (items.length === 0) {
+      historyListEl.innerHTML = `<div class="empty-state">${searchFilter ? 'No matching expenses found' : 'No recent expenses found'}</div>`;
       return;
     }
 
     historyListEl.innerHTML = '';
-    recentExpenses.forEach(item => {
+    items.forEach(item => {
       const el = document.createElement('div');
       el.className = 'history-item';
       el.id = `item-${item.id}`;

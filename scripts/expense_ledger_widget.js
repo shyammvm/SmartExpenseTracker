@@ -96,6 +96,36 @@ const CONFIG = {
 })();
 
 // =====================================================================
+// 🟢 CATEGORY DOT COMPONENT (F, G, S)
+// =====================================================================
+
+function createCategoryDot(parentStack, label, isOver) {
+  const dotStack = parentStack.addStack();
+  dotStack.size = new Size(16, 16);
+  dotStack.cornerRadius = 8;
+  dotStack.centerAlignContent();
+
+  if (isOver) {
+    // Red dot: Over budget
+    dotStack.backgroundColor = new Color("#FF3B30", 0.95);
+    dotStack.borderWidth = 0.75;
+    dotStack.borderColor = new Color("#FFA39E", 0.85);
+  } else {
+    // Green dot: Under budget / safe
+    dotStack.backgroundColor = new Color("#30D158", 0.95);
+    dotStack.borderWidth = 0.75;
+    dotStack.borderColor = new Color("#A3F7BF", 0.85);
+  }
+
+  const dotText = dotStack.addText(label);
+  dotText.font = Font.boldSystemFont(9);
+  dotText.textColor = new Color("#FFFFFF");
+  dotText.centerAlignText();
+
+  return dotStack;
+}
+
+// =====================================================================
 // 🎨 SMALL WIDGET BUILDER (Stocks Card Style)
 // =====================================================================
 
@@ -105,7 +135,6 @@ async function createSmallWidget(data) {
 
   // Determine State: Green (Safe <= Avg) vs Red (High > Avg)
   const isOverBudget = todayTotal > avgDaily;
-  const burnPct = Math.round((todayTotal / (avgDaily || 1)) * 100);
 
   const topColor = isOverBudget ? CONFIG.redGradientTop : CONFIG.greenGradientTop;
   const bottomColor = isOverBudget ? CONFIG.redGradientBottom : CONFIG.greenGradientBottom;
@@ -113,13 +142,13 @@ async function createSmallWidget(data) {
 
   const widget = new ListWidget();
   widget.backgroundGradient = makeLinearGradient(topColor, bottomColor);
-  widget.setPadding(12, 12, 12, 12);
+  widget.setPadding(10, 11, 10, 11);
 
   if (CONFIG.webAppUrl) {
     widget.url = CONFIG.webAppUrl;
   }
 
-  // --- 1. TOP HEADER (Title + Subtitle + Frosted Icon Badge) ---
+  // --- 1. TOP HEADER (Title + Total Spend + 3 Category Dots F, G, S) ---
   const headerRow = widget.addStack();
   headerRow.layoutHorizontally();
   headerRow.centerAlignContent();
@@ -130,49 +159,43 @@ async function createSmallWidget(data) {
   titleCol.spacing = 1;
 
   const monthTotal = data ? Number(data.month_total) || 0 : 0;
-  const monthVar = data ? Number(data.month_variable_total) || 0 : 0;
   const currentMonth = getCurrentMonthName(true);
 
   const titleText = titleCol.addText(CONFIG.widgetTitle);
-  titleText.font = Font.boldSystemFont(15);
+  titleText.font = Font.boldSystemFont(14);
   titleText.textColor = new Color("#FFFFFF");
 
-  // Dynamic Month Name + Monthly Total & Variable in header subtitle
+  // Dynamic Month Name + Updated Real Spend Total
   const subtitleText = titleCol.addText(
-    `${currentMonth} · ${formatCurrency(monthTotal)} (Var ${formatCurrency(monthVar)})`
+    `${currentMonth} · ${formatCurrency(monthTotal)}`
   );
   subtitleText.font = Font.systemFont(9);
-  subtitleText.textColor = new Color("#FFFFFF", 0.8);
+  subtitleText.textColor = new Color("#FFFFFF", 0.85);
   subtitleText.minimumScaleFactor = 0.75;
   subtitleText.lineLimit = 1;
 
   headerRow.addSpacer();
 
-  // Frosted Icon Badge (Top Right)
-  const badgeStack = headerRow.addStack();
-  badgeStack.size = new Size(26, 26);
-  badgeStack.cornerRadius = 7;
-  badgeStack.backgroundColor = new Color("#FFFFFF", 0.18);
-  badgeStack.borderWidth = 0.5;
-  badgeStack.borderColor = new Color("#FFFFFF", 0.25);
-  badgeStack.centerAlignContent();
+  // 3 Category Dots: [ F ] [ G ] [ S ] (Food, Grocery, Shopping)
+  const dotsStack = headerRow.addStack();
+  dotsStack.layoutHorizontally();
+  dotsStack.centerAlignContent();
+  dotsStack.spacing = 3.5;
 
-  const symImg = getSFSymbolImage("creditcard.fill", 12);
-  if (symImg) {
-    const badgeIcon = badgeStack.addImage(symImg);
-    badgeIcon.tintColor = new Color("#FFFFFF");
-    badgeIcon.imageSize = new Size(13, 13);
-  } else {
-    const rupeeText = badgeStack.addText("₹");
-    rupeeText.font = Font.boldSystemFont(12);
-    rupeeText.textColor = new Color("#FFFFFF");
-  }
+  const keyCats = (data && data.key_categories) ? data.key_categories : {};
+  const fOver = keyCats.food ? Boolean(keyCats.food.is_over) : false;
+  const gOver = keyCats.grocery ? Boolean(keyCats.grocery.is_over) : false;
+  const sOver = keyCats.shopping ? Boolean(keyCats.shopping.is_over) : false;
 
-  widget.addSpacer(4);
+  createCategoryDot(dotsStack, "F", fOver);
+  createCategoryDot(dotsStack, "G", gOver);
+  createCategoryDot(dotsStack, "S", sOver);
 
-  // --- 2. DAILY SPENDING GRAPH (Image 2 Style with Dotted Benchmark) ---
+  widget.addSpacer(3);
+
+  // --- 2. DAILY SPENDING GRAPH ---
   const history = getHistoryArray(data, todayTotal, avgDaily);
-  const chartImg = renderAreaChart(148, 68, history, avgDaily, isOverBudget);
+  const chartImg = renderAreaChart(148, 54, history, avgDaily, isOverBudget);
   if (chartImg) {
     const chartStack = widget.addStack();
     chartStack.layoutHorizontally();
@@ -180,12 +203,38 @@ async function createSmallWidget(data) {
     if (CONFIG.webAppUrl) chartStack.url = CONFIG.webAppUrl;
 
     const chartWidgetImg = chartStack.addImage(chartImg);
-    chartWidgetImg.imageSize = new Size(148, 68);
+    chartWidgetImg.imageSize = new Size(148, 54);
   }
 
-  widget.addSpacer(4);
+  widget.addSpacer(3);
 
-  // --- 3. BOTTOM ROW: SPEND AMOUNT + DAY-OVER-DAY PERCENTAGE (Image 1 Style) ---
+  // --- 3. TOTAL BUDGET VS CURRENT SAVING MICRO-BAR ---
+  const totalBudget = data ? Number(data.total_budget || data.total_proposed_variable_budget || 0) : 0;
+  const currentSavings = data ? Number(data.current_savings || 0) : 0;
+
+  const budSavBar = widget.addStack();
+  budSavBar.layoutHorizontally();
+  budSavBar.centerAlignContent();
+  budSavBar.backgroundColor = new Color("#000000", 0.28);
+  budSavBar.cornerRadius = 4;
+  budSavBar.setPadding(2, 6, 2, 6);
+  if (CONFIG.webAppUrl) budSavBar.url = CONFIG.webAppUrl;
+
+  const budLabel = budSavBar.addText(`Bud ${formatCurrency(totalBudget)} · `);
+  budLabel.font = Font.systemFont(8.5);
+  budLabel.textColor = new Color("#FFFFFF", 0.85);
+  budLabel.minimumScaleFactor = 0.8;
+  budLabel.lineLimit = 1;
+
+  const savLabel = budSavBar.addText(`Sav ${formatCurrency(currentSavings)}`);
+  savLabel.font = Font.boldSystemFont(8.5);
+  savLabel.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
+  savLabel.minimumScaleFactor = 0.8;
+  savLabel.lineLimit = 1;
+
+  widget.addSpacer(3);
+
+  // --- 4. BOTTOM ROW: SPEND AMOUNT + DAY-OVER-DAY PERCENTAGE ---
   const bottomRow = widget.addStack();
   bottomRow.layoutHorizontally();
   bottomRow.bottomAlignContent();
@@ -196,14 +245,14 @@ async function createSmallWidget(data) {
   todayStack.spacing = 1;
 
   const amountText = todayStack.addText(formatCurrency(todayTotal));
-  amountText.font = Font.boldSystemFont(17);
+  amountText.font = Font.boldSystemFont(16);
   amountText.textColor = new Color("#FFFFFF");
   amountText.minimumScaleFactor = 0.8;
   amountText.lineLimit = 1;
 
   const todayVar = getTodayVariable(data, history);
   const varText = todayStack.addText(formatCurrency(todayVar));
-  varText.font = Font.systemFont(10);
+  varText.font = Font.systemFont(9.5);
   varText.textColor = new Color("#FFFFFF", 0.65);
   varText.minimumScaleFactor = 0.8;
   varText.lineLimit = 1;
@@ -249,7 +298,7 @@ async function createMediumWidget(data) {
 
   const widget = new ListWidget();
   widget.backgroundGradient = makeLinearGradient(topColor, bottomColor);
-  widget.setPadding(14, 14, 14, 14);
+  widget.setPadding(12, 14, 12, 14);
 
   if (CONFIG.webAppUrl) {
     widget.url = CONFIG.webAppUrl;
@@ -261,28 +310,56 @@ async function createMediumWidget(data) {
   headerRow.centerAlignContent();
   if (CONFIG.webAppUrl) headerRow.url = CONFIG.webAppUrl;
 
-  const symImg = getSFSymbolImage("creditcard.fill", 14);
-  if (symImg) {
-    const icon = headerRow.addImage(symImg);
-    icon.tintColor = new Color("#FFFFFF");
-    icon.imageSize = new Size(16, 16);
-    headerRow.addSpacer(6);
-  }
-
   const monthTotal = data ? Number(data.month_total) || 0 : 0;
   const monthVar = data ? Number(data.month_variable_total) || 0 : 0;
+  const totalBudget = data ? Number(data.total_budget || data.total_proposed_variable_budget || 0) : 0;
+  const currentSavings = data ? Number(data.current_savings || 0) : 0;
   const currentMonth = getCurrentMonthName(true);
 
+  // Left column: Title + Totals + Budget vs Savings
   const titleCol = headerRow.addStack();
   titleCol.layoutVertically();
+  titleCol.spacing = 1;
 
   const title = titleCol.addText(CONFIG.widgetTitle);
   title.font = Font.boldSystemFont(14);
   title.textColor = new Color("#FFFFFF");
 
-  const sub = titleCol.addText(`${currentMonth} TOTAL: ${formatCurrency(monthTotal)} · VAR: ${formatCurrency(monthVar)}`);
+  const sub = titleCol.addText(`${currentMonth} TOTAL: ${formatCurrency(monthTotal)} (Var ${formatCurrency(monthVar)})`);
   sub.font = Font.systemFont(9);
-  sub.textColor = new Color("#FFFFFF", 0.8);
+  sub.textColor = new Color("#FFFFFF", 0.85);
+
+  const budSavRow = titleCol.addStack();
+  budSavRow.layoutHorizontally();
+  budSavRow.spacing = 3;
+
+  const bTxt = budSavRow.addText(`BUDGET ${formatCurrency(totalBudget)} · `);
+  bTxt.font = Font.boldSystemFont(8.5);
+  bTxt.textColor = new Color("#FFFFFF", 0.85);
+
+  const sTxt = budSavRow.addText(`SAVED ${formatCurrency(currentSavings)}`);
+  sTxt.font = Font.boldSystemFont(8.5);
+  sTxt.textColor = currentSavings >= 0 ? new Color("#30D158") : new Color("#FF453A");
+
+  headerRow.addSpacer();
+
+  // Center: 3 Category Dots F, G, S
+  const keyCats = (data && data.key_categories) ? data.key_categories : {};
+  const fOver = keyCats.food ? Boolean(keyCats.food.is_over) : false;
+  const gOver = keyCats.grocery ? Boolean(keyCats.grocery.is_over) : false;
+  const sOver = keyCats.shopping ? Boolean(keyCats.shopping.is_over) : false;
+
+  const dotsContainer = headerRow.addStack();
+  dotsContainer.layoutHorizontally();
+  dotsContainer.centerAlignContent();
+  dotsContainer.backgroundColor = new Color("#000000", 0.25);
+  dotsContainer.cornerRadius = 6;
+  dotsContainer.setPadding(3, 6, 3, 6);
+  dotsContainer.spacing = 4;
+
+  createCategoryDot(dotsContainer, "F", fOver);
+  createCategoryDot(dotsContainer, "G", gOver);
+  createCategoryDot(dotsContainer, "S", sOver);
 
   headerRow.addSpacer();
 
@@ -309,10 +386,10 @@ async function createMediumWidget(data) {
   pText.font = Font.systemFont(10);
   pText.textColor = new Color(subtextColor);
 
-  widget.addSpacer(10);
+  widget.addSpacer(8);
 
   // --- PANORAMIC DAILY SPEND GRAPH ---
-  const chartImg = renderAreaChart(292, 76, history, avgDaily, isOverBudget);
+  const chartImg = renderAreaChart(292, 70, history, avgDaily, isOverBudget);
   if (chartImg) {
     const chartStack = widget.addStack();
     chartStack.layoutHorizontally();
@@ -320,7 +397,7 @@ async function createMediumWidget(data) {
     if (CONFIG.webAppUrl) chartStack.url = CONFIG.webAppUrl;
 
     const chartWidgetImg = chartStack.addImage(chartImg);
-    chartWidgetImg.imageSize = new Size(292, 76);
+    chartWidgetImg.imageSize = new Size(292, 70);
   }
 
   const refreshDate = new Date(Date.now() + 1000 * 60 * CONFIG.refreshIntervalMinutes);
@@ -594,6 +671,37 @@ async function fetchExpenseData() {
     req.timeoutInterval = CONFIG.timeoutSeconds || 5;
     const json = await req.loadJSON();
     if (json && typeof json.today_total !== "undefined") {
+      // Defensive fallback: If key_categories not populated yet, fetch from /budgets
+      if (!json.key_categories) {
+        try {
+          const bReq = new Request(`${baseUrl}/budgets`);
+          bReq.headers = { "x-endpoint-secret": secret };
+          bReq.timeoutInterval = 3;
+          const bJson = await bReq.loadJSON();
+          if (bJson) {
+            json.monthly_income = Number(bJson.monthly_income || 0);
+            json.total_budget = Number(bJson.totals?.total_budgeted_outflow || bJson.totals?.total_proposed_variable_budget || 0);
+            json.current_savings = Number(bJson.savings?.based_on_spending?.current_savings || 0);
+            const bCats = bJson.categories || [];
+            json.key_categories = {};
+            for (const c of bCats) {
+              const nameLower = (c.category || "").toLowerCase();
+              if (nameLower === "food" || nameLower === "grocery" || nameLower === "shopping") {
+                json.key_categories[nameLower] = {
+                  name: c.category,
+                  spent: Number(c.this_month_spent || 0),
+                  budget: Number(c.proposed_budget || 0),
+                  is_over: Number(c.this_month_spent || 0) > Number(c.proposed_budget || 0),
+                  remaining: Number(c.remaining || 0)
+                };
+              }
+            }
+          }
+        } catch (bErr) {
+          console.warn("Budgets secondary fetch: " + bErr);
+        }
+      }
+
       saveToCache(json);
       return json;
     }
@@ -615,7 +723,15 @@ async function fetchExpenseData() {
     month_variable_total: 0,
     month_fixed_total: 0,
     avg_daily_variable_spend: 1000,
-    daily_history: []
+    daily_history: [],
+    monthly_income: 0,
+    total_budget: 0,
+    current_savings: 0,
+    key_categories: {
+      food: { name: "Food", is_over: false, spent: 0, budget: 0 },
+      grocery: { name: "Grocery", is_over: false, spent: 0, budget: 0 },
+      shopping: { name: "Shopping", is_over: false, spent: 0, budget: 0 },
+    }
   };
 }
 

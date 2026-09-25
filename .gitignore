@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 schema.sql
 widget_preview.html
+fix_double_counting_views.sql
+budget_migration.sql

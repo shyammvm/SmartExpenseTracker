@@ -20,6 +20,9 @@ import re
 import warnings
 from datetime import datetime, date, timedelta, timezone
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Filter third-party Pydantic UserWarning from SDK imports on startup
 warnings.filterwarnings("ignore", category=UserWarning, message=".*is not a Python type.*")
 
@@ -108,6 +111,19 @@ class StandingInstructionUpdateInput(BaseModel):
     day_of_month: int | None = None
     end_date: str | None = None
     is_active: bool | None = None
+
+
+class BudgetUpdateInput(BaseModel):
+    proposed_budget: float | None = None
+    avg_spending: float | None = None
+
+
+class BudgetBatchUpdateInput(BaseModel):
+    budgets: dict[str, float]
+
+
+class BudgetSettingsInput(BaseModel):
+    monthly_income: float
 
 
 def verify_secret(x_endpoint_secret: str | None = Header(default=None, alias="x-endpoint-secret")):
@@ -890,29 +906,55 @@ def summary_entry_page(_=Depends(verify_secret)):
         .neq("status", "pending_review")
         .execute()
     )
-    today_total = sum(r["amount"] for r in today_rows.data)
+    today_total = sum(float(r["amount"] or 0.0) for r in today_rows.data)
 
     month_rows = (
         supabase.table("expenses_flat")
-        .select("amount, category_type, expense_date")
+        .select("amount, category, category_type, expense_type, expense_date")
         .gte("expense_date", str(month_start))
         .lte("expense_date", str(today))
         .neq("status", "pending_review")
         .execute()
     )
-    month_total = sum(r["amount"] for r in month_rows.data)
-    month_variable = sum(r["amount"] for r in month_rows.data if r["category_type"] == "variable")
-    month_fixed = sum(r["amount"] for r in month_rows.data if r["category_type"] == "fixed")
+
+    month_variable = 0.0
+    month_fixed = 0.0
+    cc_bill_payment = 0.0
+    debit_spend = 0.0
+    credit_spend = 0.0
+    daily_spend_map = {}
+    category_spend_map = {}
+
+    for r in (month_rows.data or []):
+        amt = float(r.get("amount") or 0.0)
+        cat = r.get("category")
+        ctype = r.get("category_type")
+        etype = r.get("expense_type") or "debit"
+        d_str = r.get("expense_date")
+
+        # Exclude CC bill payment from true expenses to prevent double counting
+        if cat == "Credit Card" and etype == "debit":
+            cc_bill_payment += amt
+        else:
+            if cat:
+                category_spend_map[cat] = round(category_spend_map.get(cat, 0.0) + amt, 2)
+            if ctype == "variable":
+                month_variable += amt
+                if d_str:
+                    daily_spend_map[d_str] = round(daily_spend_map.get(d_str, 0.0) + amt, 2)
+            elif ctype == "fixed":
+                month_fixed += amt
+
+            if etype == "credit":
+                credit_spend += amt
+            else:
+                debit_spend += amt
+
+    month_total = round(month_variable + month_fixed, 2)
+    bank_cash_outflow = round(debit_spend + cc_bill_payment, 2)
 
     days_elapsed = today.day  # 1st of month = day 1, so this is correct as a divisor
     avg_daily_variable = round(month_variable / days_elapsed, 2) if days_elapsed else 0
-
-    # Aggregate daily variable spend breakdown for widget chart (zero extra DB queries)
-    daily_spend_map = {}
-    for r in month_rows.data:
-        d_str = r.get("expense_date")
-        if d_str and r.get("category_type") == "variable":
-            daily_spend_map[d_str] = round(daily_spend_map.get(d_str, 0.0) + r["amount"], 2)
 
     days_to_show = min(14, max(7, today.day))
     daily_history = []
@@ -925,14 +967,62 @@ def summary_entry_page(_=Depends(verify_secret)):
             "amount": daily_spend_map.get(d_str, 0.0)
         })
 
+    # Fetch budget totals & key categories for widget indicators
+    monthly_income = 0.0
+    total_proposed_variable_budget = 0.0
+    fixed_obligations = month_fixed
+    total_budget = month_total
+    current_savings = 0.0
+    key_categories = {
+        "food": {"name": "Food", "spent": category_spend_map.get("Food", 0.0), "budget": 0.0, "is_over": False, "remaining": 0.0},
+        "grocery": {"name": "Grocery", "spent": category_spend_map.get("Grocery", 0.0), "budget": 0.0, "is_over": False, "remaining": 0.0},
+        "shopping": {"name": "Shopping", "spent": category_spend_map.get("Shopping", 0.0), "budget": 0.0, "is_over": False, "remaining": 0.0},
+    }
+
+    try:
+        settings_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).limit(1).execute()
+        if settings_res.data:
+            monthly_income = float(settings_res.data[0].get("monthly_income") or 0.0)
+
+        budgets_res = supabase.table("budgets").select("category, proposed_budget").execute()
+        budgets_data = budgets_res.data or []
+        budget_map = {b["category"].lower(): float(b.get("proposed_budget") or 0.0) for b in budgets_data}
+        total_proposed_variable_budget = round(sum(float(b.get("proposed_budget") or 0.0) for b in budgets_data), 2)
+
+        standing_res = supabase.table("standing_instructions").select("amount").eq("is_active", True).execute()
+        fixed_obligations = round(sum(float(r.get("amount") or 0.0) for r in (standing_res.data or [])), 2)
+        total_budget = round(fixed_obligations + total_proposed_variable_budget, 2)
+        current_savings = round(monthly_income - month_total, 2) if monthly_income > 0 else 0.0
+
+        for key, cat_name in [("food", "Food"), ("grocery", "Grocery"), ("shopping", "Shopping")]:
+            sp = category_spend_map.get(cat_name, 0.0)
+            bg = budget_map.get(cat_name.lower(), 0.0)
+            key_categories[key] = {
+                "name": cat_name,
+                "spent": round(sp, 2),
+                "budget": round(bg, 2),
+                "is_over": (sp > bg) if bg > 0 else False,
+                "remaining": round(bg - sp, 2)
+            }
+    except Exception as e:
+        print(f"Non-fatal error fetching budget summary in entry-page: {e}")
+
     return {
         "today_total": round(today_total, 2),
         "today_variable_total": round(daily_spend_map.get(str(today), 0.0), 2),
-        "month_total": round(month_total, 2),
+        "month_total": month_total,
         "month_fixed_total": round(month_fixed, 2),
         "month_variable_total": round(month_variable, 2),
+        "bank_cash_outflow": bank_cash_outflow,
+        "credit_card_bill_payments": round(cc_bill_payment, 2),
         "avg_daily_variable_spend": avg_daily_variable,
         "daily_history": daily_history,
+        "monthly_income": monthly_income,
+        "total_budget": total_budget,
+        "total_proposed_variable_budget": total_proposed_variable_budget,
+        "fixed_obligations": fixed_obligations,
+        "current_savings": current_savings,
+        "key_categories": key_categories,
     }
 
 
@@ -972,16 +1062,20 @@ def summary_dashboard(_=Depends(verify_secret)):
         .execute()
     )
 
-    # Fetch last month till date rows
+    # Fetch last month till date rows (excluding last month's CC bill payment)
     last_month_rows = (
         supabase.table("expenses_flat")
-        .select("amount")
+        .select("amount, category, expense_type")
         .gte("expense_date", str(last_month_start))
         .lte("expense_date", str(last_month_till_date_end))
         .neq("status", "pending_review")
         .execute()
     )
-    last_month_mtd_total = sum(r["amount"] for r in last_month_rows.data)
+    last_month_mtd_total = sum(
+        float(r["amount"] or 0.0)
+        for r in (last_month_rows.data or [])
+        if not (r.get("category") == "Credit Card" and r.get("expense_type") == "debit")
+    )
 
     # Fetch current credit cycle rows
     credit_cycle_rows = (
@@ -993,26 +1087,38 @@ def summary_dashboard(_=Depends(verify_secret)):
         .neq("status", "pending_review")
         .execute()
     )
-    credit_cycle_total = sum(r["amount"] for r in credit_cycle_rows.data)
+    credit_cycle_total = sum(float(r["amount"] or 0.0) for r in (credit_cycle_rows.data or []))
 
     by_category: dict[str, dict] = {}
-    for r in this_month_rows.data:
+    cc_bill_payment = 0.0
+    debit_spend_net = 0.0
+    credit_spend_total = 0.0
+
+    for r in (this_month_rows.data or []):
         cat = r["category"]
         etype = r.get("expense_type", "debit")
-        entry = by_category.setdefault(cat, {
-            "category": cat,
-            "type": r["category_type"],
-            "total": 0.0,
-            "debit_total": 0.0,
-            "credit_total": 0.0,
-            "count": 0
-        })
-        entry["total"] += r["amount"]
-        if etype == "credit":
-            entry["credit_total"] += r["amount"]
+        amt = float(r.get("amount") or 0.0)
+
+        # Exclude CC bill payment debit from category breakdown to eliminate double counting
+        if cat == "Credit Card" and etype == "debit":
+            cc_bill_payment += amt
         else:
-            entry["debit_total"] += r["amount"]
-        entry["count"] += 1
+            entry = by_category.setdefault(cat, {
+                "category": cat,
+                "type": r["category_type"],
+                "total": 0.0,
+                "debit_total": 0.0,
+                "credit_total": 0.0,
+                "count": 0
+            })
+            entry["total"] += amt
+            if etype == "credit":
+                entry["credit_total"] += amt
+                credit_spend_total += amt
+            else:
+                entry["debit_total"] += amt
+                debit_spend_net += amt
+            entry["count"] += 1
 
     categories = sorted(by_category.values(), key=lambda c: c["total"], reverse=True)
     for c in categories:
@@ -1021,10 +1127,15 @@ def summary_dashboard(_=Depends(verify_secret)):
         c["credit_total"] = round(c["credit_total"], 2)
 
     month_total = round(sum(c["total"] for c in categories), 2)
+    bank_cash_outflow = round(debit_spend_net + cc_bill_payment, 2)
 
     return {
         "month": month_start.strftime("%B %Y"),
         "month_total": month_total,
+        "bank_cash_outflow": bank_cash_outflow,
+        "credit_card_bill_payment": round(cc_bill_payment, 2),
+        "debit_spend_net": round(debit_spend_net, 2),
+        "credit_spend_total": round(credit_spend_total, 2),
         "last_month_mtd_total": round(last_month_mtd_total, 2),
         "last_month_mtd_range": f"{last_month_start.strftime('%b 1')} – {last_month_till_date_end.strftime('%b %d')}",
         "credit_cycle_total": round(credit_cycle_total, 2),
@@ -1032,6 +1143,438 @@ def summary_dashboard(_=Depends(verify_secret)):
         "categories": categories,
     }
 
+
+def compute_variable_category_averages() -> dict[str, float]:
+    """Calculate historical monthly average spend for each variable category from monthly_category_summary."""
+    try:
+        cats_res = supabase.table("categories").select("name").eq("type", "variable").eq("is_active", True).execute()
+        var_cats = {c["name"] for c in (cats_res.data or [])}
+        rows = (supabase.table("monthly_category_summary").select("*").execute()).data or []
+        from collections import defaultdict
+        cat_amounts = defaultdict(list)
+        for r in rows:
+            if r.get("category") in var_cats:
+                cat_amounts[r["category"]].append(float(r.get("total_amount") or 0.0))
+        
+        avg_map = {}
+        for c in var_cats:
+            amts = cat_amounts.get(c, [])
+            avg_map[c] = round(sum(amts) / len(amts), 2) if amts else 0.0
+        return avg_map
+    except Exception as e:
+        print(f"Error computing variable category averages: {e}")
+        return {}
+
+
+@app.get("/budgets")
+def get_budgets(_=Depends(verify_secret)):
+    """Fetch all variable category budgets, historical averages, current month spending,
+    and savings analysis based on income and spending."""
+    today = get_ist_today()
+    month_start = today.replace(day=1)
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    days_elapsed = today.day
+
+    # 1. Fetch monthly income from budget_settings
+    monthly_income = 0.0
+    schema_ready = True
+    try:
+        bs_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).execute()
+        if bs_res.data:
+            monthly_income = float(bs_res.data[0].get("monthly_income") or 0.0)
+    except Exception as e:
+        schema_ready = False
+        print(f"budget_settings table notice: {e}")
+
+    # 2. Fetch variable categories
+    cat_res = supabase.table("categories").select("name, type").eq("type", "variable").eq("is_active", True).order("name").execute()
+    var_categories = cat_res.data or []
+
+    # 3. Check for dynamic database view budgets_view first
+    view_map = {}
+    try:
+        bv_res = supabase.table("budgets_view").select("*").execute()
+        if bv_res.data:
+            for row in bv_res.data:
+                view_map[row["category"]] = row
+    except Exception as e:
+        pass
+
+    # 4. Fetch budgets table
+    budget_map = {}
+    try:
+        b_res = supabase.table("budgets").select("*").execute()
+        for b in (b_res.data or []):
+            budget_map[b["category"]] = b
+    except Exception as e:
+        schema_ready = False
+        print(f"budgets table notice: {e}")
+
+    # 5. Computed averages for fallback or missing rows
+    computed_avgs = compute_variable_category_averages()
+
+    # 6. Fetch this month's spending by category from expenses_flat
+    month_rows = (
+        supabase.table("expenses_flat")
+        .select("amount, category, category_type, expense_type")
+        .gte("expense_date", str(month_start))
+        .lte("expense_date", str(today))
+        .neq("status", "pending_review")
+        .execute()
+    ).data or []
+
+    from collections import defaultdict
+    month_spent_by_cat = defaultdict(float)
+    current_month_var_spend = 0.0
+    current_month_fixed_spend_net = 0.0
+    credit_card_bill_payments = 0.0
+    debit_spend_net = 0.0
+    credit_spend_total = 0.0
+
+    for r in month_rows:
+        amt = float(r.get("amount") or 0.0)
+        cat = r.get("category")
+        etype = r.get("expense_type") or "debit"
+        cat_type = r.get("category_type")
+
+        month_spent_by_cat[cat] += amt
+
+        # Credit card bill payment is an internal debt transfer, not an expense
+        if cat == "Credit Card" and etype == "debit":
+            credit_card_bill_payments += amt
+        else:
+            if cat_type == "variable":
+                current_month_var_spend += amt
+            elif cat_type == "fixed":
+                current_month_fixed_spend_net += amt
+
+            if etype == "credit":
+                credit_spend_total += amt
+            else:
+                debit_spend_net += amt
+
+    # True spend (Accrual): real consumption across debit and credit cards, excluding CC bill debt transfer
+    current_month_true_spend = round(current_month_var_spend + current_month_fixed_spend_net, 2)
+    # Bank cash outflow (Cash Basis): total cash that left the bank account this month
+    current_month_bank_outflow = round(debit_spend_net + credit_card_bill_payments, 2)
+
+    # 7. Credit card billing cycle calculation (16th of prev/current month to 15th of current/next month)
+    if today.day <= 15:
+        cycle_start = (month_start - timedelta(days=1)).replace(day=16)
+        cycle_end = month_start.replace(day=15)
+    else:
+        cycle_start = month_start.replace(day=16)
+        if month_start.month == 12:
+            next_month_start = date(month_start.year + 1, 1, 1)
+        else:
+            next_month_start = date(month_start.year, month_start.month + 1, 1)
+        cycle_end = next_month_start.replace(day=15)
+
+    credit_cycle_rows = (
+        supabase.table("expenses_flat")
+        .select("amount")
+        .eq("expense_type", "credit")
+        .gte("expense_date", str(cycle_start))
+        .lte("expense_date", str(cycle_end))
+        .neq("status", "pending_review")
+        .execute()
+    )
+    current_cycle_credit_total = round(sum(float(r["amount"] or 0.0) for r in (credit_cycle_rows.data or [])), 2)
+
+    # 8. Fetch fixed obligations (active standing instructions)
+    si_res = supabase.table("standing_instructions").select("amount").eq("is_active", True).execute()
+    fixed_obligations = round(sum(float(s["amount"]) for s in (si_res.data or [])), 2)
+    if fixed_obligations == 0:
+        fixed_obligations = round(current_month_fixed_spend_net, 2)
+
+    # 9. Assemble category budget list
+    categories_data = []
+    total_proposed_var_budget = 0.0
+    total_var_avg_spend = 0.0
+
+    for c in var_categories:
+        cname = c["name"]
+        
+        if cname in view_map:
+            v_row = view_map[cname]
+            avg_val = float(v_row.get("avg_spending") or 0.0)
+            proposed_val = float(v_row.get("proposed_budget") or 0.0)
+            spent_val = float(v_row.get("current_month_spent") or 0.0)
+            remaining_val = float(v_row.get("remaining") or (proposed_val - spent_val))
+            pct_used = float(v_row.get("percent_used") or 0.0)
+        else:
+            db_budget = budget_map.get(cname)
+            if db_budget:
+                avg_val = float(db_budget.get("avg_spending") or computed_avgs.get(cname, 0.0))
+                proposed_val = float(db_budget.get("proposed_budget") or 0.0)
+            else:
+                avg_val = computed_avgs.get(cname, 0.0)
+                proposed_val = avg_val
+
+            spent_val = round(month_spent_by_cat.get(cname, 0.0), 2)
+            remaining_val = round(proposed_val - spent_val, 2)
+            pct_used = round((spent_val / proposed_val * 100), 1) if proposed_val > 0 else 0.0
+
+        if spent_val > proposed_val and proposed_val > 0:
+            cat_status = "over"
+        elif pct_used >= 80:
+            cat_status = "warning"
+        else:
+            cat_status = "ok"
+
+        total_proposed_var_budget += proposed_val
+        total_var_avg_spend += avg_val
+
+        categories_data.append({
+            "category": cname,
+            "category_type": "variable",
+            "avg_spending": round(avg_val, 2),
+            "proposed_budget": round(proposed_val, 2),
+            "this_month_spent": spent_val,
+            "remaining": remaining_val,
+            "percent_used": pct_used,
+            "status": cat_status,
+        })
+
+    # Sort: highest proposed budget first
+    categories_data.sort(key=lambda x: x["proposed_budget"], reverse=True)
+
+    total_proposed_var_budget = round(total_proposed_var_budget, 2)
+    total_var_avg_spend = round(total_var_avg_spend, 2)
+    total_budgeted_outflow = round(total_proposed_var_budget + fixed_obligations, 2)
+
+    # 10. Savings calculations
+    # Based on Proposed Budgets:
+    savings_from_budget = round(monthly_income - total_budgeted_outflow, 2) if monthly_income > 0 else 0.0
+    savings_rate_budget = round((savings_from_budget / monthly_income * 100), 1) if monthly_income > 0 else 0.0
+
+    # Based on True Spending so far (Real Consumption):
+    savings_from_actual = round(monthly_income - current_month_true_spend, 2) if monthly_income > 0 else 0.0
+    savings_rate_actual = round((savings_from_actual / monthly_income * 100), 1) if monthly_income > 0 else 0.0
+
+    # Projected month-end spend & savings based on burn rate:
+    projected_month_spend = round((current_month_true_spend / days_elapsed) * days_in_month, 2) if days_elapsed > 0 else 0.0
+    projected_savings = round(monthly_income - projected_month_spend, 2) if monthly_income > 0 else 0.0
+    projected_savings_rate = round((projected_savings / monthly_income * 100), 1) if monthly_income > 0 else 0.0
+
+    # Based on Bank Cash Outflow (Debits):
+    cash_savings_actual = round(monthly_income - current_month_bank_outflow, 2) if monthly_income > 0 else 0.0
+    cash_savings_rate = round((cash_savings_actual / monthly_income * 100), 1) if monthly_income > 0 else 0.0
+    projected_bank_outflow = round((current_month_bank_outflow / days_elapsed) * days_in_month, 2) if days_elapsed > 0 else 0.0
+    projected_cash_savings = round(monthly_income - projected_bank_outflow, 2) if monthly_income > 0 else 0.0
+    projected_cash_savings_rate = round((projected_cash_savings / monthly_income * 100), 1) if monthly_income > 0 else 0.0
+
+    return {
+        "monthly_income": monthly_income,
+        "categories": categories_data,
+        "totals": {
+            "total_proposed_variable_budget": total_proposed_var_budget,
+            "total_variable_avg_spending": total_var_avg_spend,
+            "current_month_variable_spent": round(current_month_var_spend, 2),
+            "fixed_obligations": fixed_obligations,
+            "current_month_fixed_spent": round(current_month_fixed_spend_net, 2),
+            "current_month_total_spent": current_month_true_spend,
+            "credit_card_bill_payments": round(credit_card_bill_payments, 2),
+            "debit_spend_net": round(debit_spend_net, 2),
+            "credit_spend_total": round(credit_spend_total, 2),
+            "bank_cash_outflow": current_month_bank_outflow,
+            "total_budgeted_outflow": total_budgeted_outflow,
+            "credit_card_cycle": {
+                "cycle_start": str(cycle_start),
+                "cycle_end": str(cycle_end),
+                "cycle_range": f"{cycle_start.strftime('%b 16')} – {cycle_end.strftime('%b 15')}",
+                "cycle_total": current_cycle_credit_total,
+            }
+        },
+        "savings": {
+            "monthly_income": monthly_income,
+            "based_on_budget": {
+                "budgeted_outflow": total_budgeted_outflow,
+                "projected_savings": savings_from_budget,
+                "savings_rate": savings_rate_budget,
+            },
+            "based_on_spending": {
+                "current_spent": current_month_true_spend,
+                "current_savings": savings_from_actual,
+                "current_savings_rate": savings_rate_actual,
+                "projected_month_end_spend": projected_month_spend,
+                "projected_month_end_savings": projected_savings,
+                "projected_savings_rate": projected_savings_rate,
+            },
+            "based_on_cash_flow": {
+                "current_spent": current_month_bank_outflow,
+                "current_savings": cash_savings_actual,
+                "current_savings_rate": cash_savings_rate,
+                "projected_month_end_spend": projected_bank_outflow,
+                "projected_month_end_savings": projected_cash_savings,
+                "projected_savings_rate": projected_cash_savings_rate,
+            }
+        },
+        "meta": {
+            "month": month_start.strftime("%B %Y"),
+            "days_elapsed": days_elapsed,
+            "days_in_month": days_in_month,
+            "schema_ready": schema_ready,
+        }
+    }
+
+
+@app.patch("/budgets/{category}")
+def update_budget(category: str, payload: BudgetUpdateInput, _=Depends(verify_secret)):
+    """Update proposed budget and/or avg spending for a specific category."""
+    cat_res = (
+        supabase.table("categories")
+        .select("name")
+        .ilike("name", category)
+        .limit(1)
+        .execute()
+    )
+    if not cat_res.data:
+        raise HTTPException(status_code=404, detail=f"Category not found: {category}")
+    canonical_name = cat_res.data[0]["name"]
+
+    try:
+        existing = (
+            supabase.table("budgets")
+            .select("*")
+            .ilike("category", canonical_name)
+            .limit(1)
+            .execute()
+        )
+
+        updates = {}
+        if payload.proposed_budget is not None:
+            updates["proposed_budget"] = max(0.0, float(payload.proposed_budget))
+
+        if not updates:
+            raise HTTPException(status_code=422, detail="No fields to update")
+
+        if existing.data:
+            match_col = "id" if "id" in existing.data[0] else "category"
+            match_val = existing.data[0]["id"] if match_col == "id" else canonical_name
+            res = supabase.table("budgets").update(updates).eq(match_col, match_val).execute()
+            return {"status": "ok", "budget": res.data[0] if res.data else None}
+        else:
+            new_row = {
+                "category": canonical_name,
+                "proposed_budget": updates.get("proposed_budget", 0.0),
+            }
+            res = supabase.table("budgets").insert(new_row).execute()
+            return {"status": "ok", "budget": res.data[0] if res.data else None}
+    except Exception as e:
+        err_msg = str(e)
+        if "PGRST205" in err_msg or "budgets" in err_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="The 'budgets' table does not exist in the database yet. Please run the SQL migration in Supabase SQL Editor."
+            )
+        raise HTTPException(status_code=500, detail=f"Could not update budget: {err_msg}")
+
+
+@app.post("/budgets/batch")
+def update_budgets_batch(payload: BudgetBatchUpdateInput, _=Depends(verify_secret)):
+    """Update proposed budgets for multiple categories in a single call."""
+    if not payload.budgets:
+        raise HTTPException(status_code=422, detail="No budgets provided")
+
+    results = {}
+    errors = {}
+
+    for cat_name, amount in payload.budgets.items():
+        try:
+            val = max(0.0, float(amount))
+            existing = (
+                supabase.table("budgets")
+                .select("category")
+                .ilike("category", cat_name)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                canonical_name = existing.data[0]["category"]
+                supabase.table("budgets").update({"proposed_budget": val}).eq("category", canonical_name).execute()
+                results[canonical_name] = val
+            else:
+                cat_res = supabase.table("categories").select("name").ilike("name", cat_name).limit(1).execute()
+                canonical_name = cat_res.data[0]["name"] if cat_res.data else cat_name
+                supabase.table("budgets").insert({"category": canonical_name, "proposed_budget": val}).execute()
+                results[canonical_name] = val
+        except Exception as e:
+            errors[cat_name] = str(e)
+
+    if errors and not results:
+        raise HTTPException(status_code=500, detail=f"Failed to update budgets: {errors}")
+
+    return {"status": "ok", "updated": results, "errors": errors}
+
+
+@app.post("/budgets/sync-averages")
+def sync_budget_averages(_=Depends(verify_secret)):
+    """Recalculate historical average spend per month for all variable categories and sync to budgets table."""
+    try:
+        computed_avgs = compute_variable_category_averages()
+        cat_res = supabase.table("categories").select("name").eq("type", "variable").eq("is_active", True).execute()
+        active_cats = [c["name"] for c in (cat_res.data or [])]
+
+        updated_count = 0
+        for cname in active_cats:
+            avg_val = computed_avgs.get(cname, 0.0)
+            existing = supabase.table("budgets").select("category, proposed_budget").ilike("category", cname).limit(1).execute()
+            if existing.data:
+                row = existing.data[0]
+                upd = {}
+                if float(row.get("proposed_budget") or 0.0) == 0.0:
+                    upd["proposed_budget"] = avg_val
+                if upd:
+                    supabase.table("budgets").update(upd).eq("category", row["category"]).execute()
+            else:
+                supabase.table("budgets").insert({
+                    "category": cname,
+                    "proposed_budget": avg_val,
+                }).execute()
+            updated_count += 1
+
+        return {"status": "ok", "synced_categories": updated_count, "averages": computed_avgs}
+    except Exception as e:
+        err_msg = str(e)
+        if "PGRST205" in err_msg or "budgets" in err_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="The 'budgets' table does not exist in the database yet. Please run the SQL migration in Supabase SQL Editor."
+            )
+        raise HTTPException(status_code=500, detail=f"Could not sync averages: {err_msg}")
+
+
+@app.get("/budget-settings")
+def get_budget_settings(_=Depends(verify_secret)):
+    """Get current monthly income and budget settings."""
+    try:
+        res = supabase.table("budget_settings").select("*").eq("id", 1).execute()
+        if res.data:
+            return {"status": "ok", "settings": res.data[0]}
+        return {"status": "ok", "settings": {"monthly_income": 0.0}}
+    except Exception as e:
+        return {"status": "ok", "settings": {"monthly_income": 0.0}, "schema_ready": False}
+
+
+@app.post("/budget-settings")
+def update_budget_settings(payload: BudgetSettingsInput, _=Depends(verify_secret)):
+    """Update user's monthly income."""
+    income = max(0.0, float(payload.monthly_income))
+    try:
+        res = supabase.table("budget_settings").upsert({
+            "id": 1,
+            "monthly_income": income,
+        }).execute()
+        return {"status": "ok", "settings": res.data[0] if res.data else {"monthly_income": income}}
+    except Exception as e:
+        err_msg = str(e)
+        if "PGRST205" in err_msg or "budget_settings" in err_msg.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="The 'budget_settings' table does not exist in the database yet. Please run the SQL migration in Supabase SQL Editor."
+            )
+        raise HTTPException(status_code=500, detail=f"Could not update monthly income: {err_msg}")
 
 
 @app.get("/health")

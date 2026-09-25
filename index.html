@@ -14,81 +14,101 @@
 </head>
 <body>
 
-<nav class="nav">
-  <a href="index.html" class="active">Entry</a>
-  <a href="dashboard.html">Dashboard</a>
-  <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
-  <a href="instructions.html">Instructions</a>
-  <a href="history.html">History</a>
-  <a href="categories.html">Categories</a>
-</nav>
+<header class="app-header">
+  <a href="index.html" class="header-brand">
+    <div class="brand-stamp">₹</div>
+    <div class="brand-text">
+      <div class="brand-title">LEDGER</div>
+      <div class="brand-sub">Smart Expense Tracker</div>
+    </div>
+  </a>
+  <nav class="nav">
+    <a href="index.html" class="active">Entry</a>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="budgets.html">Budgets</a>
+    <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+    <a href="instructions.html">Instructions</a>
+    <a href="history.html">History</a>
+    <a href="categories.html">Categories</a>
+  </nav>
+</header>
 
-<div class="receipt" id="summaryCard">
-  <header>
-    <div class="eyebrow">THIS MONTH SO FAR</div>
-    <h1 style="font-size:24px;">Summary</h1>
-  </header>
-  <div class="stat-grid" id="statGrid">
-    <div class="stat-card"><div class="label">Today</div><div class="value" id="statToday">—</div></div>
-    <div class="stat-card"><div class="label">This Month</div><div class="value" id="statMonth">—</div></div>
-    <div class="stat-card"><div class="label">Fixed</div><div class="value" id="statFixed">—</div></div>
-    <div class="stat-card"><div class="label">Variable</div><div class="value" id="statVariable">—</div></div>
-    <div class="stat-card wide"><div class="label">Avg Daily Variable Spend</div><div class="value" id="statAvgVar">—</div></div>
-  </div>
-</div>
+<main class="page-container">
+  <div class="entry-grid">
+    <!-- Left Column: New Entry Form -->
+    <div class="receipt">
+      <header>
+        <div class="eyebrow">EXPENSE LEDGER</div>
+        <h1>New Entry</h1>
+      </header>
 
-<div class="receipt">
-  <header>
-    <div class="eyebrow">EXPENSE LEDGER</div>
-    <h1>New Entry</h1>
-  </header>
+      <div class="field">
+        <label for="amount">Amount</label>
+        <div class="amount-row">
+          <span>₹</span>
+          <input type="text" id="amount" inputmode="decimal" placeholder="0.00">
+        </div>
+      </div>
 
-  <div class="field">
-    <label for="amount">Amount</label>
-    <div class="amount-row">
-      <span>₹</span>
-      <input type="text" id="amount" inputmode="decimal" placeholder="0.00">
+      <div class="field">
+        <label>Category</label>
+        <div class="chips" id="chips">
+          <div class="empty-state" id="chipsLoading">Loading categories…</div>
+        </div>
+      </div>
+
+      <div class="field-row-2col">
+        <div class="field">
+          <label for="expense">Expense</label>
+          <input type="text" id="expense" placeholder="e.g. lunch with Priya">
+        </div>
+
+        <div class="field">
+          <label for="date">Date</label>
+          <input type="date" id="date">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Type</label>
+        <div class="chips" id="typeChips" style="grid-template-columns: repeat(2, 1fr);">
+          <button type="button" class="chip selected" data-type="debit">Debit</button>
+          <button type="button" class="chip" data-type="credit">Credit</button>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="submit-wrap">
+        <button id="submitBtn">Stamp<br>Entry</button>
+        <div class="status" id="status"></div>
+      </div>
+    </div>
+
+    <!-- Right Column: Summary Card & Today's Tape -->
+    <div class="entry-sidebar">
+      <div class="receipt" id="summaryCard">
+        <header>
+          <div class="eyebrow">THIS MONTH SO FAR</div>
+          <h1 style="font-size:24px;">Summary</h1>
+        </header>
+        <div class="stat-grid" id="statGrid">
+          <div class="stat-card"><div class="label">Today</div><div class="value" id="statToday">—</div></div>
+          <div class="stat-card"><div class="label">This Month</div><div class="value" id="statMonth">—</div></div>
+          <div class="stat-card"><div class="label">Fixed</div><div class="value" id="statFixed">—</div></div>
+          <div class="stat-card"><div class="label">Variable</div><div class="value" id="statVariable">—</div></div>
+          <div class="stat-card wide"><div class="label">Avg Daily Variable Spend</div><div class="value" id="statAvgVar">—</div></div>
+        </div>
+      </div>
+
+      <div class="receipt tape" id="tape" style="display:none;margin-top:0;">
+        <div class="tape-title">Today's Tape</div>
+        <div id="tapeRows"></div>
+        <div class="tape-total"><span>Total</span><span id="tapeTotal">₹0.00</span></div>
+      </div>
     </div>
   </div>
-
-  <div class="field">
-    <label>Category</label>
-    <div class="chips" id="chips">
-      <div class="empty-state" id="chipsLoading">Loading categories…</div>
-    </div>
-  </div>
-
-  <div class="field">
-    <label for="expense">Expense</label>
-    <input type="text" id="expense" placeholder="e.g. lunch with Priya">
-  </div>
-
-  <div class="field">
-    <label for="date">Date</label>
-    <input type="date" id="date">
-  </div>
-
-  <div class="field">
-    <label>Type</label>
-    <div class="chips" id="typeChips" style="grid-template-columns: repeat(2, 1fr);">
-      <button type="button" class="chip selected" data-type="debit">Debit</button>
-      <button type="button" class="chip" data-type="credit">Credit</button>
-    </div>
-  </div>
-
-  <hr class="divider">
-
-  <div class="submit-wrap">
-    <button id="submitBtn">Stamp<br>Entry</button>
-    <div class="status" id="status"></div>
-  </div>
-
-  <div class="tape" id="tape" style="display:none;">
-    <div class="tape-title">Today's Tape</div>
-    <div id="tapeRows"></div>
-    <div class="tape-total"><span>Total</span><span id="tapeTotal">₹0.00</span></div>
-  </div>
-</div>
+</main>
 
 <script src="config.js"></script>
 <script>

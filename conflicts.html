@@ -13,25 +13,37 @@
 </head>
 <body>
 
-<nav class="nav">
-  <a href="index.html">Entry</a>
-  <a href="dashboard.html">Dashboard</a>
-  <a href="conflicts.html" class="active">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
-  <a href="instructions.html">Instructions</a>
-  <a href="history.html">History</a>
-  <a href="categories.html">Categories</a>
-</nav>
+<header class="app-header">
+  <a href="index.html" class="header-brand">
+    <div class="brand-stamp">₹</div>
+    <div class="brand-text">
+      <div class="brand-title">LEDGER</div>
+      <div class="brand-sub">Smart Expense Tracker</div>
+    </div>
+  </a>
+  <nav class="nav">
+    <a href="index.html">Entry</a>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="budgets.html">Budgets</a>
+    <a href="conflicts.html" class="active">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+    <a href="instructions.html">Instructions</a>
+    <a href="history.html">History</a>
+    <a href="categories.html">Categories</a>
+  </nav>
+</header>
 
-<div class="receipt">
-  <header>
-    <div class="eyebrow">REVIEW REQUIRED</div>
-    <h1 style="font-size:24px;">Conflicts</h1>
-  </header>
+<main class="page-container">
+  <div class="receipt">
+    <header>
+      <div class="eyebrow">REVIEW REQUIRED</div>
+      <h1 style="font-size:24px;">Conflicts</h1>
+    </header>
 
-  <div id="conflictsList">
-    <div class="empty-state">Loading pending reviews…</div>
+    <div id="conflictsList">
+      <div class="empty-state">Loading pending reviews…</div>
+    </div>
   </div>
-</div>
+</main>
 
 <script src="config.js"></script>
 <script>
@@ -55,41 +67,45 @@
     const descText = item.expense || item.category || 'Expense';
 
     card.innerHTML = `
-      <div class="reason-badge">⚠️ ${reasonText}</div>
-      <div class="conflict-header">
-        <div>
-          <strong style="font-size:15px;">${descText}</strong>
-          <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">
-            Category: <strong>${item.category || 'Unassigned'}</strong> • ${item.expense_date || 'Today'}
+      <div class="conflict-left-col">
+        <div class="reason-badge">⚠️ ${reasonText}</div>
+        <div class="conflict-header" style="margin-bottom:8px;">
+          <div>
+            <strong style="font-size:16px;">${descText}</strong>
+            <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">
+              Category: <strong>${item.category || 'Unassigned'}</strong> • ${item.expense_date || 'Today'}
+            </div>
           </div>
+          <div class="amt">${formatRupees(item.amount)}</div>
         </div>
-        <div class="amt">${formatRupees(item.amount)}</div>
+
+        ${item.raw_text ? `<div class="raw-text-box"><strong>Raw text:</strong> "${item.raw_text}"</div>` : ''}
       </div>
 
-      ${item.raw_text ? `<div class="raw-text-box"><strong>Raw text:</strong> "${item.raw_text}"</div>` : ''}
+      <div class="conflict-right-col">
+        <div class="conflict-actions" style="margin-top:0;">
+          <button type="button" class="btn-approve" onclick="approveExpense('${item.id}')">Approve</button>
+          <button type="button" class="btn-edit" onclick="toggleEdit('${item.id}')">Edit</button>
+          <button type="button" class="btn-deny" onclick="denyExpense('${item.id}')">Deny</button>
+        </div>
 
-      <div class="conflict-actions">
-        <button type="button" class="btn-approve" onclick="approveExpense('${item.id}')">Approve</button>
-        <button type="button" class="btn-edit" onclick="toggleEdit('${item.id}')">Edit</button>
-        <button type="button" class="btn-deny" onclick="denyExpense('${item.id}')">Deny</button>
-      </div>
-
-      <div class="edit-panel" id="edit-${item.id}">
-        <div class="field">
-          <label>Amount (₹)</label>
-          <input type="number" step="0.01" id="edit-amt-${item.id}" value="${item.amount}">
+        <div class="edit-panel" id="edit-${item.id}">
+          <div class="field">
+            <label>Amount (₹)</label>
+            <input type="number" step="0.01" id="edit-amt-${item.id}" value="${item.amount}">
+          </div>
+          <div class="field">
+            <label>Category</label>
+            <select id="edit-cat-${item.id}">
+              ${availableCategories.map(c => `<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>Expense Name / Payee</label>
+            <input type="text" id="edit-exp-${item.id}" value="${item.expense || ''}">
+          </div>
+          <button type="button" class="btn-save" onclick="saveAndApprove('${item.id}')">Save & Approve</button>
         </div>
-        <div class="field">
-          <label>Category</label>
-          <select id="edit-cat-${item.id}">
-            ${availableCategories.map(c => `<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>Expense Name / Payee</label>
-          <input type="text" id="edit-exp-${item.id}" value="${item.expense || ''}">
-        </div>
-        <button type="button" class="btn-save" onclick="saveAndApprove('${item.id}')">Save & Approve</button>
       </div>
     `;
     return card;

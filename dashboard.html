@@ -13,50 +13,73 @@
 </head>
 <body>
 
-<nav class="nav">
-  <a href="index.html">Entry</a>
-  <a href="dashboard.html" class="active">Dashboard</a>
-  <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
-  <a href="instructions.html">Instructions</a>
-  <a href="history.html">History</a>
-  <a href="categories.html">Categories</a>
-</nav>
-
-<div class="receipt">
-  <header>
-    <div class="eyebrow" id="monthLabel">THIS MONTH</div>
-    <h1 style="font-size:24px;">Dashboard</h1>
-  </header>
-
-  <div class="stat-grid" style="margin-bottom:20px;">
-    <div class="stat-card wide">
-      <div class="label">This Month Total</div>
-      <div class="value" id="monthTotal" style="font-size:26px;">—</div>
+<header class="app-header">
+  <a href="index.html" class="header-brand">
+    <div class="brand-stamp">₹</div>
+    <div class="brand-text">
+      <div class="brand-title">LEDGER</div>
+      <div class="brand-sub">Smart Expense Tracker</div>
     </div>
-    <div class="stat-card">
-      <div class="label">Last Month MTD</div>
-      <div class="value" id="lastMonthMtd" style="font-size:18px;">—</div>
-      <div id="lastMonthMtdRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+  </a>
+  <nav class="nav">
+    <a href="index.html">Entry</a>
+    <a href="dashboard.html" class="active">Dashboard</a>
+    <a href="budgets.html">Budgets</a>
+    <a href="conflicts.html">Conflicts <span id="conflictBadge" class="badge" style="display:none;"></span></a>
+    <a href="instructions.html">Instructions</a>
+    <a href="history.html">History</a>
+    <a href="categories.html">Categories</a>
+  </nav>
+</header>
+
+<main class="page-container">
+  <div class="receipt">
+    <header>
+      <div class="eyebrow" id="monthLabel">THIS MONTH</div>
+      <h1 style="font-size:24px;">Dashboard</h1>
+    </header>
+
+    <div class="stat-grid dash-stat-grid" style="margin-bottom:20px;">
+      <div class="stat-card wide">
+        <div class="label">This Month Total</div>
+        <div class="value" id="monthTotal" style="font-size:26px;">—</div>
+        <div id="monthTotalSub" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Last Month MTD</div>
+        <div class="value" id="lastMonthMtd" style="font-size:18px;">—</div>
+        <div id="lastMonthMtdRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Credit Card Cycle</div>
+        <div class="value" id="creditCycleTotal" style="font-size:18px;">—</div>
+        <div id="creditCycleRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      </div>
+      <div class="stat-card wide" style="background:rgba(31,92,79,0.05);border:1px dashed var(--stamp);cursor:pointer;" onclick="location.href='budgets.html'">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div class="label" style="color:var(--stamp);font-weight:700;">BUDGETS & SAVINGS</div>
+            <div class="value" id="dashBudgetSavings" style="font-size:18px;color:var(--stamp);">—</div>
+          </div>
+          <div style="font-size:11px;color:var(--stamp);letter-spacing:1px;font-weight:700;">VIEW &rarr;</div>
+        </div>
+        <div id="dashBudgetSub" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Compare proposed budgets & forecast savings</div>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="label">Credit Card Cycle</div>
-      <div class="value" id="creditCycleTotal" style="font-size:18px;">—</div>
-      <div id="creditCycleRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <label style="margin:0;">By Category</label>
+      <div class="split-legend" style="margin:0;">
+        <div class="legend-item"><span class="legend-box legend-debit"></span> <span id="legDebitSummary">Debit</span></div>
+        <div class="legend-item"><span class="legend-box legend-credit"></span> <span id="legCreditSummary">Credit</span></div>
+      </div>
+    </div>
+
+    <div id="catBars" class="cat-bars-grid">
+      <div class="empty-state">Loading…</div>
     </div>
   </div>
-
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-    <label style="margin:0;">By Category</label>
-    <div class="split-legend" style="margin:0;">
-      <div class="legend-item"><span class="legend-box legend-debit"></span> Debit</div>
-      <div class="legend-item"><span class="legend-box legend-credit"></span> Credit</div>
-    </div>
-  </div>
-
-  <div id="catBars">
-    <div class="empty-state">Loading…</div>
-  </div>
-</div>
+</main>
 
 <script src="config.js"></script>
 <script>
@@ -99,7 +122,24 @@
       const data = await apiFetch('/summary/dashboard');
       document.getElementById('monthLabel').textContent = data.month.toUpperCase();
       document.getElementById('monthTotal').textContent = formatRupees(data.month_total);
+      const subEl = document.getElementById('monthTotalSub');
+      if (subEl) {
+        if (data.bank_cash_outflow) {
+          subEl.innerHTML = `Bank Debits: <strong>${formatRupees(data.bank_cash_outflow)}</strong> (${formatRupees(data.debit_spend_net || 0)} daily + ${formatRupees(data.credit_card_bill_payment || 0)} CC bill)`;
+        } else {
+          subEl.textContent = 'Real Outflow';
+        }
+      }
       
+      const legDebit = document.getElementById('legDebitSummary');
+      if (legDebit && data.bank_cash_outflow) {
+        legDebit.textContent = `Bank Debits: ${formatRupees(data.bank_cash_outflow)}`;
+      }
+      const legCredit = document.getElementById('legCreditSummary');
+      if (legCredit && data.credit_spend_total) {
+        legCredit.textContent = `Credit Swipes: ${formatRupees(data.credit_spend_total)}`;
+      }
+
       document.getElementById('lastMonthMtd').textContent = formatRupees(data.last_month_mtd_total);
       document.getElementById('lastMonthMtdRange').textContent = data.last_month_mtd_range;
       
@@ -107,6 +147,25 @@
       document.getElementById('creditCycleRange').textContent = data.credit_cycle_range;
 
       renderBars(data.categories);
+
+      // Async fetch budget savings preview
+      apiFetch('/budgets').then(bData => {
+        const inc = Number(bData.monthly_income || 0);
+        const bSav = bData.savings?.based_on_budget;
+        const dashSavEl = document.getElementById('dashBudgetSavings');
+        const dashSubEl = document.getElementById('dashBudgetSub');
+        if (dashSavEl) {
+          if (inc > 0 && bSav) {
+            dashSavEl.textContent = `${formatRupees(bSav.projected_savings)} / mo (${bSav.savings_rate}%)`;
+            dashSavEl.style.color = bSav.projected_savings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+            dashSubEl.textContent = `Target savings based on proposed budgets & ${formatRupees(inc)} income`;
+          } else {
+            const totVarBudget = bData.totals?.total_proposed_variable_budget || 0;
+            dashSavEl.textContent = `Var Budget: ${formatRupees(totVarBudget)}`;
+            dashSubEl.textContent = 'Set your monthly income in Budgets to forecast savings';
+          }
+        }
+      }).catch(() => {});
     } catch (e) {
       document.getElementById('catBars').innerHTML =
         `<div class="empty-state">Could not load dashboard: ${e.message}</div>`;
