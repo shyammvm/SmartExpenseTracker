@@ -446,10 +446,9 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       renderBudgetData(cachedData);
     }
     try {
-      const inc = cachedData ? (cachedData.monthly_income || 0) : 0;
       await apiFetch('/budget-settings', {
         method: 'POST',
-        body: JSON.stringify({ monthly_income: inc, cc_cycle_pct: pct })
+        body: JSON.stringify({ cc_cycle_pct: pct })
       });
     } catch (e) {
       console.warn('Failed to save cc_cycle_pct:', e.message);

@@ -123,7 +123,7 @@ class BudgetBatchUpdateInput(BaseModel):
 
 
 class BudgetSettingsInput(BaseModel):
-    monthly_income: float
+    monthly_income: float | None = None
     month: str | None = None
     cc_cycle_pct: int | None = None  # 20, 25, or 30 — CC limit as % of salary
 
@@ -1981,7 +1981,6 @@ def get_budget_settings(month: str | None = None, _=Depends(verify_secret)):
 def update_budget_settings(payload: BudgetSettingsInput, month: str | None = None, _=Depends(verify_secret)):
     """Update user's monthly income. If month is provided, sets salary for that specific month.
     If month is current or future (or omitted), also updates the baseline default income."""
-    income = max(0.0, float(payload.monthly_income))
     today = get_ist_today()
     cur_month_str = today.strftime("%Y-%m")
 
@@ -1992,8 +1991,20 @@ def update_budget_settings(payload: BudgetSettingsInput, month: str | None = Non
 
     is_current_or_future = (target_month >= cur_month_str)
 
-    # Save to monthly_salaries store
-    saved_salary = save_monthly_salary(target_month, income, update_default=is_current_or_future)
+    default_income = 0.0
+    try:
+        bs_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).execute()
+        if bs_res.data:
+            default_income = float(bs_res.data[0].get("monthly_income") or 0.0)
+    except Exception:
+        pass
+
+    # Only update salary if monthly_income was explicitly provided in the payload
+    if payload.monthly_income is not None:
+        income = max(0.0, float(payload.monthly_income))
+        saved_salary = save_monthly_salary(target_month, income, update_default=is_current_or_future)
+    else:
+        saved_salary = get_salary_for_month(target_month, default_income)
 
     # Save cc_cycle_pct to credit_card_settings if provided
     if payload.cc_cycle_pct is not None and 1 <= payload.cc_cycle_pct <= 80:
@@ -2005,7 +2016,7 @@ def update_budget_settings(payload: BudgetSettingsInput, month: str | None = Non
         "status": "ok",
         "month": target_month,
         "monthly_income": saved_salary,
-        "updated_default": is_current_or_future,
+        "updated_default": is_current_or_future and (payload.monthly_income is not None),
         "cc_cycle_pct": cc_cycle_pct,
         "settings": {"monthly_income": saved_salary, "cc_cycle_pct": cc_cycle_pct}
     }
