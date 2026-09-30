@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="theme-dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#B8B2A0">
+<meta name="theme-color" content="#0E100F">
 <title>Ledger</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231F5C4F'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23EDE7D3' font-family='monospace'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
@@ -20,7 +20,6 @@
     <div class="brand-stamp">₹</div>
     <div class="brand-text">
       <div class="brand-title">LEDGER</div>
-      <div class="brand-sub">Smart Expense Tracker</div>
     </div>
   </a>
   <nav class="nav">
@@ -39,7 +38,7 @@
     <!-- Left Column: New Entry Form -->
     <div class="receipt">
       <header>
-        <div class="eyebrow">EXPENSE LEDGER</div>
+        <div class="eyebrow">LEDGER</div>
         <h1>New Entry</h1>
       </header>
 
@@ -50,13 +49,13 @@
             <span>⚡ AI Quick Paste</span>
             <span class="ai-quick-badge">Gemini Flash</span>
           </div>
-          <span class="ai-quick-toggle-text" id="aiQuickToggleText">Click to expand ▾</span>
+          <span class="ai-quick-toggle-text" id="aiQuickToggleText">AI Paste ▾</span>
         </div>
         <div class="ai-quick-body" id="aiQuickBody" style="display:none;">
-          <textarea id="aiQuickInput" class="ai-quick-textarea" placeholder="Paste bank SMS, UPI alert, or type freely (e.g. 'Paid Rs 450 to Swiggy for lunch')..."></textarea>
+          <textarea id="aiQuickInput" class="ai-quick-textarea" placeholder="Paste SMS, UPI alert, or text..."></textarea>
           <div class="ai-quick-actions">
-            <button type="button" class="btn-ai-parse-fill" id="btnAiFill">⚡ Parse & Fill</button>
-            <button type="button" class="btn-ai-parse-stamp" id="btnAiStamp">⚡ Parse & Stamp</button>
+            <button type="button" class="btn-ai-parse-fill" id="btnAiFill">Fill</button>
+            <button type="button" class="btn-ai-parse-stamp" id="btnAiStamp">Stamp</button>
             <div class="ai-quick-status" id="aiQuickStatus"></div>
           </div>
         </div>
@@ -119,7 +118,7 @@
     <div class="entry-sidebar">
       <div class="receipt" id="summaryCard">
         <header>
-          <div class="eyebrow">THIS MONTH SO FAR</div>
+          <div class="eyebrow">THIS MONTH</div>
           <h1 style="font-size:24px;">Summary</h1>
         </header>
         <div class="stat-grid" id="statGrid">
@@ -127,7 +126,7 @@
           <div class="stat-card"><div class="label">This Month</div><div class="value" id="statMonth">—</div></div>
           <div class="stat-card"><div class="label">Fixed</div><div class="value" id="statFixed">—</div></div>
           <div class="stat-card"><div class="label">Variable</div><div class="value" id="statVariable">—</div></div>
-          <div class="stat-card wide"><div class="label">Avg Daily Variable Spend</div><div class="value" id="statAvgVar">—</div></div>
+          <div class="stat-card wide"><div class="label">Daily Avg (Var)</div><div class="value" id="statAvgVar">—</div></div>
         </div>
       </div>
 
@@ -238,7 +237,7 @@
   function toggleAiPanel(forceOpen = null) {
     isAiPanelOpen = forceOpen !== null ? forceOpen : !isAiPanelOpen;
     aiQuickBodyEl.style.display = isAiPanelOpen ? 'block' : 'none';
-    aiQuickToggleTextEl.textContent = isAiPanelOpen ? 'Click to collapse ▴' : 'Click to expand ▾';
+    aiQuickToggleTextEl.textContent = isAiPanelOpen ? 'Close ▴' : 'AI Paste ▾';
     if (isAiPanelOpen) {
       setTimeout(() => aiQuickInputEl.focus(), 50);
     }

@@ -173,10 +173,14 @@ function applyTheme(theme) {
   } else {
     document.documentElement.classList.remove('theme-dark');
   }
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute('content', theme === 'dark' ? '#0E100F' : '#B8B2A0');
+  }
 }
 
-// Immediate theme application to prevent white flicker
-const currentSavedTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app_theme')) || 'light';
+// Immediate theme application to prevent white flicker (default: dark)
+const currentSavedTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app_theme')) || 'dark';
 applyTheme(currentSavedTheme);
 
 function toggleTheme() {

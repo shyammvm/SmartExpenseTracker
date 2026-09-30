@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="theme-dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#B8B2A0">
+<meta name="theme-color" content="#0E100F">
 <title>Budgets & Savings — Ledger</title>
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +19,6 @@
     <div class="brand-stamp">₹</div>
     <div class="brand-text">
       <div class="brand-title">LEDGER</div>
-      <div class="brand-sub">Smart Expense Tracker</div>
     </div>
   </a>
   <nav class="nav">
@@ -78,7 +77,7 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
   <div class="receipt">
     <header style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;">
       <div>
-        <div class="eyebrow" id="monthEyebrow">MONTHLY OUTLOOK</div>
+        <div class="eyebrow" id="monthEyebrow">OUTLOOK</div>
         <h1 style="font-size:24px;margin:0;">Income & Savings</h1>
       </div>
       <!-- Dual Mode Switcher -->
@@ -102,15 +101,12 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
         <button type="button" class="btn-save-sm" id="saveIncomeBtn">Save</button>
         <button type="button" class="btn-cancel-sm" id="cancelIncomeBtn">Cancel</button>
       </div>
-      <div style="font-size:9.5px;color:var(--ink-faint);margin-top:4px;" id="incomeHelper">
-        Stored in database to forecast monthly savings
-      </div>
     </div>
 
     <!-- MTD Spend vs. Income Progress Box -->
     <div class="spend-vs-income-box">
       <div class="spend-vs-income-top">
-        <span class="spend-vs-income-title" id="spendMeterTitle">Actual Spend vs. Income (MTD)</span>
+        <span class="spend-vs-income-title" id="spendMeterTitle">Actual Spend vs. Income</span>
         <span class="spend-vs-income-val" id="spendMeterVal">₹0.00 / ₹0.00 (0%)</span>
       </div>
       <div class="spend-vs-income-track" id="spendMeterTrack">
@@ -131,16 +127,15 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     <!-- Active Credit Card Cycle Banner -->
     <div class="cc-cycle-banner" id="ccCycleBanner" style="display:none;">
       <div>
-        <strong>💳 Credit Card Cycle (<span id="ccCycleRange">—</span>):</strong>
+        <strong>💳 CC Cycle (<span id="ccCycleRange">—</span>):</strong>
         <span id="ccCycleAmount" class="cc-cycle-tag">₹0.00</span> unbilled
       </div>
-      <span style="font-size:9.5px;color:var(--ink-faint);">Bill generates 15th · Auto-debited 1st of next month</span>
     </div>
 
     <!-- Savings Performance Grid -->
     <div class="stat-grid budgets-stat-grid" style="margin-bottom:14px;">
       <div class="stat-card">
-        <div class="label">Target Savings (Budget)</div>
+        <div class="label">Target Savings</div>
         <div class="value" id="statBudgetSavings" style="color:var(--stamp);font-size:18px;">—</div>
         <div id="statBudgetSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
@@ -152,10 +147,10 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       <div class="stat-card">
         <div class="label">Fixed Obligations</div>
         <div class="value" id="statFixedCommitments" style="font-size:18px;">—</div>
-        <div style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">EMIs, rent, bills</div>
+        <div style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Standing orders</div>
       </div>
       <div class="stat-card">
-        <div class="label" id="lblProjectedSavings">Projected Month-End Savings</div>
+        <div class="label" id="lblProjectedSavings">Projected Savings</div>
         <div class="value" id="statProjectedSavings" style="font-size:18px;">—</div>
         <div id="statProjectedSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
@@ -163,7 +158,7 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
     <!-- Allocation Visual Gauge -->
     <div class="savings-gauge-wrap">
-      <label style="margin-bottom:4px;font-size:10px;">Income Allocation (Based on Budgets)</label>
+      <label style="margin-bottom:4px;font-size:10px;">Income Allocation</label>
       <div class="savings-gauge" id="savingsGauge">
         <div class="gauge-seg fixed" id="gaugeFixed" style="width:0%;" title="Fixed Obligations"></div>
         <div class="gauge-seg variable" id="gaugeVariable" style="width:0%;" title="Variable Budgets"></div>
@@ -181,17 +176,10 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
   <div class="receipt">
     <div class="header-action-row">
       <div>
-        <div class="eyebrow">VARIABLE CATEGORIES</div>
-        <h1 style="font-size:24px;margin:0;">Proposed Budgets</h1>
+        <div class="eyebrow">VARIABLE</div>
+        <h1 style="font-size:24px;margin:0;">Budgets</h1>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:10px;color:var(--stamp);border:1px solid var(--paper-line);padding:3px 7px;background:rgba(31,92,79,0.06);font-weight:700;letter-spacing:0.5px;">● Live Averages</span>
-        <button type="button" class="btn-auto-alloc" id="openAutoAllocBtn" title="Automatically calculate budgets based on standard frameworks">⚡ Auto-Allocate</button>
-      </div>
-    </div>
-
-    <div style="font-size:10.5px;color:var(--ink-faint);margin-bottom:14px;line-height:1.4;">
-      Avg spend reflects your historical monthly average. Enter your proposed budget below to track progress.
+      <button type="button" class="btn-auto-alloc" id="openAutoAllocBtn" title="Automatically calculate budgets based on standard frameworks">⚡ Auto-Allocate</button>
     </div>
 
     <div id="budgetItemsList">
@@ -203,19 +191,19 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     <!-- Totals Summary Table (Responsive 4-col on desktop) -->
     <div class="budget-totals-grid">
       <div class="budget-total-cell">
-        <span class="tot-label">Historical Avg Spend</span>
+        <span class="tot-label">Hist. Avg</span>
         <span class="tot-val" id="totAvgSpend">₹0.00</span>
       </div>
       <div class="budget-total-cell">
-        <span class="tot-label">Proposed Variable Budget</span>
+        <span class="tot-label">Proposed Budget</span>
         <span class="tot-val" id="totProposedBudget" style="color:var(--stamp);">₹0.00</span>
       </div>
       <div class="budget-total-cell">
-        <span class="tot-label">Spent This Month (Var)</span>
+        <span class="tot-label">Spent (MTD)</span>
         <span class="tot-val" id="totSpentThisMonth">₹0.00</span>
       </div>
       <div class="budget-total-cell">
-        <span class="tot-label">Total Outflow (Fixed+Var)</span>
+        <span class="tot-label">Total Outflow</span>
         <span class="tot-val" id="totBudgetedOutflow">₹0.00</span>
       </div>
     </div>
@@ -228,55 +216,47 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     <div class="auto-alloc-modal-card">
       <div class="modal-header">
         <div>
-          <div class="eyebrow">AUTOMATED PLANNING</div>
-          <h2 style="font-size:22px;margin:0;">⚡ Auto-Allocate Budgets</h2>
+          <div class="eyebrow">ALLOCATE</div>
+          <h2 style="font-size:18px;margin:0;">⚡ Auto-Allocate</h2>
         </div>
         <button type="button" class="modal-close-btn" id="closeAutoAllocBtn" aria-label="Close modal">&times;</button>
       </div>
-
-      <p class="modal-subtitle">
-        Distribute your available monthly funds across variable categories using standard financial frameworks or your custom savings target. Budgets are weighted by your actual historical spend proportions.
-      </p>
 
       <div class="auto-alloc-modal-body">
         <!-- Financial Base Summary -->
         <div class="auto-alloc-base-summary">
           <div class="alloc-base-item">
-            <span class="alloc-lbl">Monthly Income</span>
+            <span class="alloc-lbl">Income</span>
             <span class="alloc-val" id="allocIncomeVal">₹0.00</span>
           </div>
           <div class="alloc-base-item">
-            <span class="alloc-lbl">Fixed Needs (Standing Orders)</span>
+            <span class="alloc-lbl">Fixed Needs</span>
             <span class="alloc-val" id="allocFixedVal">₹0.00</span>
           </div>
           <div class="alloc-base-item highlight">
-            <span class="alloc-lbl">Available Pool (Wants + Savings)</span>
+            <span class="alloc-lbl">Available Pool</span>
             <span class="alloc-val" id="allocPoolVal">₹0.00</span>
           </div>
         </div>
 
         <!-- Strategy Presets -->
-        <div class="alloc-section-label">1. CHOOSE A FRAMEWORK / PRESET</div>
+        <div class="alloc-section-label">1. FRAMEWORK</div>
         <div class="preset-pill-grid">
           <button type="button" class="preset-pill active" data-preset="balanced" id="presetBalanced">
-            <div class="preset-name">⚖️ Balanced (Historical)</div>
+            <div class="preset-name">⚖️ Balanced</div>
             <div class="preset-ratios" id="ratioBalanced">40% Needs · 38% Var · 22% Save</div>
-            <div class="preset-desc">Anchors variable spend to your actual historical average (~₹31k).</div>
           </button>
           <button type="button" class="preset-pill" data-preset="standard" id="presetStandard">
-            <div class="preset-name">📐 Standard 50/30/20</div>
+            <div class="preset-name">📐 50/30/20</div>
             <div class="preset-ratios" id="ratioStandard">40% Needs · 30% Var · 30% Save</div>
-            <div class="preset-desc">Classic rule adapted to your 40% fixed commitments (₹24.3k variable, ₹24.2k savings).</div>
           </button>
           <button type="button" class="preset-pill" data-preset="aggressive" id="presetAggressive">
-            <div class="preset-name">🔥 Aggressive FIRE</div>
+            <div class="preset-name">🔥 FIRE</div>
             <div class="preset-ratios" id="ratioAggressive">40% Needs · 25% Var · 35% Save</div>
-            <div class="preset-desc">Maximizes wealth accumulation (₹20.3k variable, ₹28.3k savings).</div>
           </button>
           <button type="button" class="preset-pill" data-preset="custom" id="presetCustom">
-            <div class="preset-name">⚙️ Custom Target</div>
-            <div class="preset-ratios" id="ratioCustom">Interactive Savings Slider</div>
-            <div class="preset-desc">Slide to set your exact target monthly savings percentage.</div>
+            <div class="preset-name">⚙️ Custom</div>
+            <div class="preset-ratios" id="ratioCustom">Savings Slider</div>
           </button>
         </div>
 
@@ -288,13 +268,13 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
           </div>
           <input type="range" min="5" max="50" step="1" value="22" id="allocSavingsSlider" class="alloc-range-slider">
           <div class="alloc-slider-sub">
-            <span>Resulting Variable Budget Pool: <strong id="allocVarPoolDisplay">₹31,062.00</strong></span>
-            <span>Fixed Commitments: <strong id="allocFixedSubDisplay">₹32,530.80</strong></span>
+            <span>Variable Pool: <strong id="allocVarPoolDisplay">₹31,062.00</strong></span>
+            <span>Fixed: <strong id="allocFixedSubDisplay">₹32,530.80</strong></span>
           </div>
         </div>
 
         <!-- Preview Table -->
-        <div class="alloc-section-label" style="margin-top:14px;">2. PROPORTIONAL BREAKDOWN (HISTORICAL SPEND SHARE)</div>
+        <div class="alloc-section-label" style="margin-top:10px;">2. PROPOSED ALLOCATION</div>
         <div class="alloc-preview-table-wrap">
           <table class="alloc-preview-table">
             <thead>
@@ -304,7 +284,7 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
                 <th style="text-align:right;">Hist. Avg</th>
                 <th style="text-align:right;">Current</th>
                 <th style="text-align:right;">Proposed (₹)</th>
-                <th style="text-align:right;">Net Change</th>
+                <th style="text-align:right;">Change</th>
               </tr>
             </thead>
             <tbody id="allocPreviewTableBody">
@@ -312,7 +292,7 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
             </tbody>
             <tfoot>
               <tr class="alloc-table-total-row">
-                <td style="text-align:left;">Total Variable Budget</td>
+                <td style="text-align:left;">Total Budget</td>
                 <td style="text-align:right;">100%</td>
                 <td style="text-align:right;" id="allocFootHist">—</td>
                 <td style="text-align:right;" id="allocFootCurrent">—</td>
@@ -329,14 +309,13 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
             <span>Projected Monthly Savings: </span>
             <strong id="allocImpactSavingsVal" style="color:var(--stamp);font-size:12px;">₹0.00 (0%)</strong>
           </div>
-          <span style="font-size:9.5px;color:var(--ink-faint);">Rounded to nearest ₹50 for clean bookkeeping</span>
         </div>
       </div>
 
       <!-- Actions -->
       <div class="modal-actions-row">
         <button type="button" class="btn-cancel-sm" id="cancelAutoAllocBtn">Cancel</button>
-        <button type="button" class="btn-apply-auto" id="applyAutoAllocBtn">⚡ Apply These Budgets</button>
+        <button type="button" class="btn-apply-auto" id="applyAutoAllocBtn">⚡ Apply Budgets</button>
       </div>
     </div>
   </div>

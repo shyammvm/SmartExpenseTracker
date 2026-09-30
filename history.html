@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="theme-dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#B8B2A0">
+<meta name="theme-color" content="#0E100F">
 <title>History — Ledger</title>
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +19,6 @@
     <div class="brand-stamp">₹</div>
     <div class="brand-text">
       <div class="brand-title">LEDGER</div>
-      <div class="brand-sub">Smart Expense Tracker</div>
     </div>
   </a>
   <nav class="nav">
@@ -36,7 +35,7 @@
 <main class="page-container">
   <div class="receipt">
     <header>
-      <div class="eyebrow" id="historyEyebrow">LAST 30 TRANSACTIONS · ALL TIME</div>
+      <div class="eyebrow" id="historyEyebrow">TRANSACTIONS</div>
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:4px;">
         <h1 style="font-size:24px;margin:0;">History</h1>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -64,26 +63,26 @@
     <div class="history-controls">
       <!-- Quick Date Filter Presets -->
       <div class="filter-preset-bar" id="presetBar">
-        <button type="button" class="preset-pill active" data-preset="all" id="presetAll">All Dates</button>
+        <button type="button" class="preset-pill active" data-preset="all" id="presetAll">All</button>
         <button type="button" class="preset-pill" data-preset="this_month" id="presetThisMonth">This Month</button>
         <button type="button" class="preset-pill" data-preset="last_month" id="presetLastMonth">Last Month</button>
-        <button type="button" class="preset-pill" data-preset="last_30" id="presetLast30">Last 30 Days</button>
-        <button type="button" class="preset-pill" data-preset="custom" id="presetCustom">Custom Range ▾</button>
+        <button type="button" class="preset-pill" data-preset="last_30" id="presetLast30">30 Days</button>
+        <button type="button" class="preset-pill" data-preset="custom" id="presetCustom">Custom ▾</button>
       </div>
 
       <!-- Custom Date Range Picker Box -->
       <div class="custom-date-box" id="customDateBox" style="display:none;">
         <div class="custom-date-row">
           <div class="date-field">
-            <label for="startDate">From Date</label>
+            <label for="startDate">From</label>
             <input type="date" id="startDate" class="date-input">
           </div>
           <div class="date-field">
-            <label for="endDate">To Date</label>
+            <label for="endDate">To</label>
             <input type="date" id="endDate" class="date-input">
           </div>
           <div class="date-actions">
-            <button type="button" class="btn-filter-apply" id="btnApplyDateFilter">Apply Filter</button>
+            <button type="button" class="btn-filter-apply" id="btnApplyDateFilter">Apply</button>
             <button type="button" class="btn-filter-reset" id="btnResetDateFilter" title="Reset to All Dates">Reset</button>
           </div>
         </div>
@@ -91,7 +90,7 @@
 
       <!-- Search Input -->
       <div class="search-bar-wrap" style="position:relative;margin-bottom:0;">
-        <input type="text" id="historySearch" class="search-input" placeholder="🔍 Search expenses by payee or category...">
+        <input type="text" id="historySearch" class="search-input" placeholder="Search payee or category...">
         <button type="button" id="btnClearSearch" class="search-clear-btn" style="display:none;" title="Clear search">✕</button>
       </div>
 
