@@ -125,6 +125,7 @@ class BudgetBatchUpdateInput(BaseModel):
 class BudgetSettingsInput(BaseModel):
     monthly_income: float
     month: str | None = None
+    cc_cycle_pct: int | None = None  # 20, 25, or 30 — CC limit as % of salary
 
 
 def get_monthly_salaries() -> dict[str, float]:
@@ -187,6 +188,33 @@ def save_monthly_salary(month: str, salary: float, update_default: bool = True) 
             print(f"Notice updating default budget_settings: {e}")
 
     return salary
+
+
+def get_cc_cycle_pct_setting() -> int:
+    """Fetch the credit card cycle spend limit percentage from credit_card_settings (defaults to 30%)."""
+    try:
+        res = supabase.table("credit_card_settings").select("cc_cycle_pct").eq("id", 1).limit(1).execute()
+        if res.data:
+            pct = int(res.data[0].get("cc_cycle_pct") or 30)
+            return pct if 1 <= pct <= 80 else 30
+    except Exception:
+        pass
+    return 30
+
+
+def save_cc_cycle_pct_setting(pct: int) -> int:
+    """Save the credit card cycle spend limit percentage to credit_card_settings."""
+    val = max(1, min(80, int(pct)))
+    try:
+        supabase.table("credit_card_settings").upsert({
+            "id": 1,
+            "cc_cycle_pct": val,
+            "updated_at": "now()"
+        }).execute()
+    except Exception as e:
+        print(f"Notice saving credit_card_settings: {e}")
+    return val
+
 
 
 def verify_secret(x_endpoint_secret: str | None = Header(default=None, alias="x-endpoint-secret")):
@@ -1182,6 +1210,7 @@ def summary_entry_page(_=Depends(verify_secret)):
         settings_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).limit(1).execute()
         if settings_res.data:
             monthly_income = float(settings_res.data[0].get("monthly_income") or 0.0)
+        cc_cycle_pct_db = get_cc_cycle_pct_setting()
         cur_month_str = today.strftime("%Y-%m")
         monthly_income = get_salary_for_month(cur_month_str, monthly_income)
 
@@ -1197,6 +1226,10 @@ def summary_entry_page(_=Depends(verify_secret)):
         total_budget = round(fixed_obligations + total_proposed_variable_budget, 2)
         current_savings = round(monthly_income - bank_cash_outflow, 2) if monthly_income > 0 else 0.0
 
+        # CC cycle limit = salary × cc_cycle_pct (read from DB, set by user via pill buttons)
+        # Default is 30% if not set. Widget gets the correct limit here automatically.
+        cc_cycle_limit = round(monthly_income * cc_cycle_pct_db / 100, 2) if monthly_income > 0 else total_proposed_variable_budget
+
         for key, cat_name in [("food", "Food"), ("grocery", "Grocery"), ("shopping", "Shopping")]:
             sp = category_spend_map.get(cat_name, 0.0)
             bg = budget_map.get(cat_name.lower(), 0.0)
@@ -1209,6 +1242,29 @@ def summary_entry_page(_=Depends(verify_secret)):
             }
     except Exception as e:
         print(f"Non-fatal error fetching budget summary in entry-page: {e}")
+
+    # Active CC billing cycle total (current swipes accumulating toward next bill)
+    cc_cycle_total = 0.0
+    try:
+        ep_today = get_ist_today()
+        if ep_today.day <= 15:
+            ep_cycle_start = date(ep_today.year - 1, 12, 16) if ep_today.month == 1 else date(ep_today.year, ep_today.month - 1, 16)
+            ep_cycle_end = date(ep_today.year, ep_today.month, 15)
+        else:
+            ep_cycle_start = date(ep_today.year, ep_today.month, 16)
+            ep_cycle_end = date(ep_today.year + 1, 1, 15) if ep_today.month == 12 else date(ep_today.year, ep_today.month + 1, 15)
+        cc_rows = (
+            supabase.table("expenses_flat")
+            .select("amount")
+            .eq("expense_type", "credit")
+            .gte("expense_date", str(ep_cycle_start))
+            .lte("expense_date", str(ep_cycle_end))
+            .neq("status", "pending_review")
+            .execute()
+        )
+        cc_cycle_total = round(sum(float(r["amount"] or 0.0) for r in (cc_rows.data or [])), 2)
+    except Exception as e:
+        print(f"Non-fatal error fetching CC cycle in entry-page: {e}")
 
     return {
         "today_total": round(today_total, 2),
@@ -1226,6 +1282,12 @@ def summary_entry_page(_=Depends(verify_secret)):
         "fixed_obligations": fixed_obligations,
         "current_savings": current_savings,
         "key_categories": key_categories,
+        "cc_cycle_total": cc_cycle_total,
+        "cc_cycle_limit": cc_cycle_limit,
+        "cc_cycle_pct_setting": cc_cycle_pct_db,
+        "cc_cycle_pct": round((cc_cycle_total / cc_cycle_limit * 100), 1) if cc_cycle_limit > 0 else 0.0,
+        "cc_over_limit": cc_cycle_total > cc_cycle_limit,
+        "cc_warning": cc_cycle_total >= (cc_cycle_limit * 0.8),
     }
 
 
@@ -1415,6 +1477,8 @@ def get_budgets(month: str | None = None, _=Depends(verify_secret)):
     except Exception as e:
         schema_ready = False
         print(f"budget_settings table notice: {e}")
+
+    cc_cycle_pct_db = get_cc_cycle_pct_setting()
 
     # Resolve month-specific salary (falls back to default baseline income)
     monthly_income = get_salary_for_month(selected_month, default_monthly_income)
@@ -1714,6 +1778,8 @@ def get_budgets(month: str | None = None, _=Depends(verify_secret)):
                 "prev_cycle_end": str(prev_cycle_end),
                 "prev_cycle_range": f"{prev_cycle_start.strftime('%b %d')} – {prev_cycle_end.strftime('%b %d')}",
                 "prev_cycle_total": prev_cycle_credit_total,
+                "cc_cycle_pct_setting": cc_cycle_pct_db,
+                "cc_cycle_limit": round(monthly_income * cc_cycle_pct_db / 100, 2) if monthly_income > 0 else 0.0,
             }
         },
         "savings": {
@@ -1897,13 +1963,15 @@ def get_budget_settings(month: str | None = None, _=Depends(verify_secret)):
         pass
 
     salary = get_salary_for_month(target_month, default_income)
+    cc_cycle_pct = get_cc_cycle_pct_setting()
     return {
         "status": "ok",
         "month": target_month,
         "monthly_income": salary,
         "default_income": default_income,
         "has_override": (target_month in get_monthly_salaries()),
-        "settings": {"monthly_income": salary}
+        "cc_cycle_pct": cc_cycle_pct,
+        "settings": {"monthly_income": salary, "cc_cycle_pct": cc_cycle_pct}
     }
 
 
@@ -1927,12 +1995,19 @@ def update_budget_settings(payload: BudgetSettingsInput, month: str | None = Non
     # Save to monthly_salaries store
     saved_salary = save_monthly_salary(target_month, income, update_default=is_current_or_future)
 
+    # Save cc_cycle_pct to credit_card_settings if provided
+    if payload.cc_cycle_pct is not None and 1 <= payload.cc_cycle_pct <= 80:
+        cc_cycle_pct = save_cc_cycle_pct_setting(payload.cc_cycle_pct)
+    else:
+        cc_cycle_pct = get_cc_cycle_pct_setting()
+
     return {
         "status": "ok",
         "month": target_month,
         "monthly_income": saved_salary,
         "updated_default": is_current_or_future,
-        "settings": {"monthly_income": saved_salary}
+        "cc_cycle_pct": cc_cycle_pct,
+        "settings": {"monthly_income": saved_salary, "cc_cycle_pct": cc_cycle_pct}
     }
 
 

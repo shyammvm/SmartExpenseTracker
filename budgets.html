@@ -152,22 +152,51 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       </div>
     </div>
 
-    <!-- Credit Card Cycle Info: Two rows — bill due this month + active accumulation -->
-    <div class="cc-cycle-banner" id="ccCycleBanner" style="display:none;">
-      <!-- Row 1: Previous closed cycle = bill due THIS month (paid from current salary) -->
+    <!-- Credit Card Cycle Warning System -->
+    <div class="cc-cycle-banner" id="ccCycleBanner" style="display:none;flex-direction:column;gap:6px;">
+
+      <!-- Alert bar: shown when over/near limit -->
+      <div id="ccAlertBar" style="display:none;padding:5px 8px;border-radius:5px;font-size:11px;font-weight:700;letter-spacing:0.02em;"></div>
+
+      <!-- Row 1: Previous closed cycle = bill due THIS month -->
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <strong>💳 This Month's Bill</strong>
         <span style="font-size:10px;color:var(--ink-faint);">(<span id="ccPrevCycleRange">—</span>)</span>
         <span id="ccPrevCycleAmount" class="cc-cycle-tag" style="color:#818cf8;">₹0.00</span>
         <span id="ccBillSource" style="font-size:10px;color:var(--ink-faint);font-style:italic;"></span>
       </div>
-      <!-- Row 2: Current active cycle = accumulating for NEXT month's bill -->
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;padding-top:4px;border-top:1px solid var(--border-faint,rgba(255,255,255,0.06));">
-        <span style="font-size:10.5px;color:var(--ink-faint);">🔄 Active Cycle</span>
-        <span style="font-size:10px;color:var(--ink-faint);">(<span id="ccCycleRange">—</span>)</span>
-        <span id="ccCycleAmount" class="cc-cycle-tag" style="opacity:0.7;">₹0.00</span>
-        <span style="font-size:10px;color:var(--ink-faint);">→ due next month</span>
-        <span id="ccUpcomingTag" style="margin-left:4px;font-size:10.5px;color:var(--ink-faint);"></span>
+
+      <!-- Row 2: Active cycle with progress bar + editable limit -->
+      <div style="display:flex;flex-direction:column;gap:4px;padding-top:5px;border-top:1px solid var(--border-faint,rgba(255,255,255,0.06));">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:10.5px;color:var(--ink-faint);">🔄 Active Cycle</span>
+          <span style="font-size:10px;color:var(--ink-faint);">(<span id="ccCycleRange">—</span>)</span>
+          <span id="ccCycleAmount" class="cc-cycle-tag" style="opacity:0.85;">₹0.00</span>
+          <span id="ccCyclePct" style="font-size:10px;font-weight:700;"></span>
+          <span style="flex:1;"></span>
+          <span style="font-size:10px;color:var(--ink-faint);">Limit:</span>
+          <span id="ccLimitDisplay" style="font-size:10px;color:var(--ink-faint);font-weight:600;">—</span>
+          <span style="font-size:9.5px;color:var(--ink-faint);">of salary:</span>
+          <button onclick="setCCPct(20)" id="ccPct20" style="font-size:9px;padding:1px 6px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--ink-faint);cursor:pointer;">20%</button>
+          <button onclick="setCCPct(25)" id="ccPct25" style="font-size:9px;padding:1px 6px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--ink-faint);cursor:pointer;">25%</button>
+          <button onclick="setCCPct(30)" id="ccPct30" style="font-size:9px;padding:1px 6px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--ink-faint);cursor:pointer;">30%</button>
+          <span style="font-size:9px;color:var(--ink-faint);">or</span>
+          <div style="display:flex;align-items:center;gap:1px;">
+            <input type="number" id="ccPctCustomInput" min="1" max="80" step="1"
+              style="width:38px;font-size:10px;padding:1px 4px;border-radius:4px 0 0 4px;border:1px solid var(--border);border-right:none;background:var(--surface);color:var(--ink);text-align:center;"
+              placeholder="%" title="Enter custom % of salary"
+              onkeydown="if(event.key==='Enter') saveCustomCCPct()"
+              onblur="saveCustomCCPct()">
+            <span style="font-size:9px;padding:1px 4px;border:1px solid var(--border);border-left:none;border-radius:0 4px 4px 0;background:var(--surface);color:var(--ink-faint);">%</span>
+          </div>
+        </div>
+        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,0.08);overflow:hidden;">
+          <div id="ccCycleBar" style="height:100%;width:0%;border-radius:3px;transition:width 0.5s ease,background 0.4s;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span id="ccCycleBarLabel" style="font-size:9.5px;color:var(--ink-faint);">due next month</span>
+          <span id="ccUpcomingTag" style="font-size:10px;color:var(--ink-faint);"></span>
+        </div>
       </div>
     </div>
 
@@ -386,6 +415,45 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     setTimeout(() => {
       if (statusEl.textContent === msg) statusEl.textContent = '';
     }, 4000);
+  }
+
+  // --- CC Cycle Limit: % of salary (any value 1-80, presets 20/25/30) stored in DB ---
+  // All changes POST to /budget-settings so widget + all devices stay in sync.
+  async function setCCPct(pct) {
+    const val = parseInt(pct);
+    if (isNaN(val) || val < 1 || val > 80) return;
+    // Sync custom input field
+    const customInput = document.getElementById('ccPctCustomInput');
+    if (customInput && ![20, 25, 30].includes(val)) customInput.value = val;
+    else if (customInput) customInput.value = '';
+    await _saveCCPctToAPI(val);
+  }
+
+  async function saveCustomCCPct() {
+    const input = document.getElementById('ccPctCustomInput');
+    if (!input) return;
+    const val = parseInt(input.value);
+    if (isNaN(val) || val < 1 || val > 80) { input.value = ''; return; }
+    await _saveCCPctToAPI(val);
+  }
+
+  async function _saveCCPctToAPI(pct) {
+    // Optimistically update UI immediately
+    if (cachedData && cachedData.totals && cachedData.totals.credit_card_cycle) {
+      cachedData.totals.credit_card_cycle.cc_cycle_pct_setting = pct;
+      const inc = cachedData.monthly_income || 0;
+      cachedData.totals.credit_card_cycle.cc_cycle_limit = inc > 0 ? (inc * pct / 100) : 0;
+      renderBudgetData(cachedData);
+    }
+    try {
+      const inc = cachedData ? (cachedData.monthly_income || 0) : 0;
+      await apiFetch('/budget-settings', {
+        method: 'POST',
+        body: JSON.stringify({ monthly_income: inc, cc_cycle_pct: pct })
+      });
+    } catch (e) {
+      console.warn('Failed to save cc_cycle_pct:', e.message);
+    }
   }
 
   // --- Copy SQL for pending migration ---
@@ -613,12 +681,11 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       }
     }
 
-    // 2. Credit Card Cycle Banner — two rows: bill due this month + active accumulation
+    // 2. Credit Card Cycle Warning System
     const ccCycle = totals.credit_card_cycle;
     const bannerEl = document.getElementById('ccCycleBanner');
     if (bannerEl && ccCycle && ccCycle.cycle_range) {
       bannerEl.style.display = 'flex';
-      bannerEl.style.flexDirection = 'column';
 
       // Row 1: Previous closed cycle = bill due THIS month
       const prevRangeEl = document.getElementById('ccPrevCycleRange');
@@ -626,7 +693,6 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       const prevAmtEl = document.getElementById('ccPrevCycleAmount');
       if (prevAmtEl) prevAmtEl.textContent = formatRupees(ccCycle.prev_cycle_total || 0);
 
-      // Show source label (paid / estimated from closed cycle / historical avg)
       const billSrcEl = document.getElementById('ccBillSource');
       if (billSrcEl) {
         const src = totals.credit_card_bill_source || '';
@@ -636,11 +702,79 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
         else billSrcEl.textContent = '';
       }
 
-      // Row 2: Active cycle = accumulating for NEXT month's bill
+      // Row 2: Active cycle amount
       const rangeEl = document.getElementById('ccCycleRange');
       if (rangeEl) rangeEl.textContent = ccCycle.cycle_range;
+      const cycleTotal = ccCycle.cycle_total || 0;
       const amtEl = document.getElementById('ccCycleAmount');
-      if (amtEl) amtEl.textContent = formatRupees(ccCycle.cycle_total || 0);
+      if (amtEl) amtEl.textContent = formatRupees(cycleTotal);
+
+      // CC Limit: salary × pct from DB (authoritative, synced across widget + all devices)
+      const ccCycleData = ccCycle;
+      const dbPct = ccCycleData.cc_cycle_pct_setting || 30;
+      const dbLimit = ccCycleData.cc_cycle_limit || (inc > 0 ? inc * dbPct / 100 : 0);
+      const ccLimit = dbLimit;
+
+      // Render limit display
+      const limitDisplayEl = document.getElementById('ccLimitDisplay');
+      if (limitDisplayEl) limitDisplayEl.textContent = ccLimit > 0 ? formatRupees(ccLimit) : '—';
+
+      // Highlight active % pill (or show custom value in input if not a preset)
+      const isPreset = [20, 25, 30].includes(dbPct);
+      [20, 25, 30].forEach(p => {
+        const btn = document.getElementById(`ccPct${p}`);
+        if (btn) {
+          if (p === dbPct) {
+            btn.style.background = '#818cf8';
+            btn.style.color = '#fff';
+            btn.style.borderColor = '#818cf8';
+          } else {
+            btn.style.background = 'transparent';
+            btn.style.color = 'var(--ink-faint)';
+            btn.style.borderColor = 'var(--border)';
+          }
+        }
+      });
+      const customInputEl = document.getElementById('ccPctCustomInput');
+      if (customInputEl) customInputEl.value = isPreset ? '' : dbPct;
+
+      // Progress bar
+      const pct = ccLimit > 0 ? Math.min((cycleTotal / ccLimit) * 100, 130) : 0;
+      const barEl = document.getElementById('ccCycleBar');
+      if (barEl) {
+        barEl.style.width = `${Math.min(pct, 100)}%`;
+        if (pct >= 100) barEl.style.background = '#ef4444';
+        else if (pct >= 80) barEl.style.background = '#f59e0b';
+        else barEl.style.background = '#818cf8';
+      }
+
+      // Percentage label
+      const pctEl = document.getElementById('ccCyclePct');
+      if (pctEl && ccLimit > 0) {
+        const pctDisplay = (cycleTotal / ccLimit * 100).toFixed(0);
+        pctEl.textContent = `${pctDisplay}%`;
+        pctEl.style.color = pct >= 100 ? '#ef4444' : pct >= 80 ? '#f59e0b' : 'var(--ink-faint)';
+      }
+
+      // Alert bar
+      const alertEl = document.getElementById('ccAlertBar');
+      if (alertEl && ccLimit > 0) {
+        if (cycleTotal > ccLimit) {
+          alertEl.style.display = 'block';
+          alertEl.style.background = 'rgba(239,68,68,0.15)';
+          alertEl.style.color = '#ef4444';
+          alertEl.style.border = '1px solid rgba(239,68,68,0.3)';
+          alertEl.textContent = `⚠️ CC over limit! ${formatRupees(cycleTotal)} of ${formatRupees(ccLimit)} — ${formatRupees(cycleTotal - ccLimit)} over budget`;
+        } else if (cycleTotal >= ccLimit * 0.8) {
+          alertEl.style.display = 'block';
+          alertEl.style.background = 'rgba(245,158,11,0.12)';
+          alertEl.style.color = '#f59e0b';
+          alertEl.style.border = '1px solid rgba(245,158,11,0.25)';
+          alertEl.textContent = `⚡ CC at ${(cycleTotal / ccLimit * 100).toFixed(0)}% of limit — ${formatRupees(ccLimit - cycleTotal)} remaining`;
+        } else {
+          alertEl.style.display = 'none';
+        }
+      }
 
       const upTagEl = document.getElementById('ccUpcomingTag');
       if (upTagEl) upTagEl.textContent = '';

@@ -135,6 +135,15 @@
         </div>
       </div>
 
+      <!-- CC Cycle Warning Banner (shown when active cycle is near/over limit) -->
+      <div id="entryCCWarning" style="display:none;margin-top:0;padding:10px 14px;border-radius:8px;font-size:11.5px;font-weight:600;line-height:1.5;">
+        <div id="entryCCWarningText"></div>
+        <div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.1);overflow:hidden;margin-top:6px;">
+          <div id="entryCCBar" style="height:100%;width:0%;border-radius:2px;transition:width 0.5s;"></div>
+        </div>
+        <div id="entryCCBarSub" style="font-size:9.5px;margin-top:3px;opacity:0.8;font-weight:400;"></div>
+      </div>
+
       <div class="receipt tape" id="tape" style="display:none;margin-top:0;">
         <div class="tape-title">Today's Tape</div>
         <div id="tapeRows"></div>
@@ -203,6 +212,37 @@
         remRateEl.textContent = inc > 0
           ? `${formatRupees(bankOut)} debited · ${debitRemPct.toFixed(0)}% left`
           : 'Cash left in bank';
+      }
+
+      // CC Cycle Warning Banner — limit comes from API (DB-backed, synced with widget)
+      const ccTotal = s.cc_cycle_total || 0;
+      const ccLimit = s.cc_cycle_limit || 0;  // salary × cc_cycle_pct from DB
+      const ccWarningEl = document.getElementById('entryCCWarning');
+      if (ccWarningEl && ccLimit > 0 && ccTotal > 0) {
+        const ccPct = ccTotal / ccLimit * 100;
+        const ccBarEl = document.getElementById('entryCCBar');
+        const ccTextEl = document.getElementById('entryCCWarningText');
+        const ccSubEl = document.getElementById('entryCCBarSub');
+        if (ccPct >= 100) {
+          ccWarningEl.style.display = 'block';
+          ccWarningEl.style.background = 'rgba(239,68,68,0.13)';
+          ccWarningEl.style.border = '1px solid rgba(239,68,68,0.3)';
+          ccWarningEl.style.color = '#ef4444';
+          if (ccTextEl) ccTextEl.textContent = `⚠️ CC over limit! ${formatRupees(ccTotal)} of ${formatRupees(ccLimit)} — ${formatRupees(ccTotal - ccLimit)} over`;
+          if (ccBarEl) { ccBarEl.style.width = '100%'; ccBarEl.style.background = '#ef4444'; }
+        } else if (ccPct >= 80) {
+          ccWarningEl.style.display = 'block';
+          ccWarningEl.style.background = 'rgba(245,158,11,0.1)';
+          ccWarningEl.style.border = '1px solid rgba(245,158,11,0.25)';
+          ccWarningEl.style.color = '#f59e0b';
+          if (ccTextEl) ccTextEl.textContent = `⚡ CC at ${ccPct.toFixed(0)}% of limit — ${formatRupees(ccLimit - ccTotal)} left`;
+          if (ccBarEl) { ccBarEl.style.width = `${ccPct}%`; ccBarEl.style.background = '#f59e0b'; }
+        } else {
+          ccWarningEl.style.display = 'none';
+        }
+        if (ccSubEl) ccSubEl.textContent = `Active cycle: ${formatRupees(ccTotal)} / Limit: ${formatRupees(ccLimit)}`;
+      } else if (ccWarningEl) {
+        ccWarningEl.style.display = 'none';
       }
     } catch (e) {
       document.getElementById('summaryCard').innerHTML =
