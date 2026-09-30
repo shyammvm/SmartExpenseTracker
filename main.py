@@ -124,6 +124,69 @@ class BudgetBatchUpdateInput(BaseModel):
 
 class BudgetSettingsInput(BaseModel):
     monthly_income: float
+    month: str | None = None
+
+
+def get_monthly_salaries() -> dict[str, float]:
+    """Fetch all month-specific salaries stored in budget_settings table."""
+    salaries = {}
+    try:
+        res = supabase.table("budget_settings").select("month, monthly_income").execute()
+        if res.data:
+            for r in res.data:
+                m = r.get("month")
+                inc = float(r.get("monthly_income") or 0.0)
+                if m and m != "default":
+                    salaries[m] = inc
+    except Exception:
+        pass
+    return salaries
+
+
+def get_salary_for_month(month: str, default_salary: float = 0.0) -> float:
+    salaries = get_monthly_salaries()
+    if month in salaries:
+        return float(salaries[month])
+
+    # Automatically inherit from the most recent past month
+    past_months = [m for m in salaries.keys() if m < month]
+    inherited_salary = float(salaries[max(past_months)]) if past_months else default_salary
+
+    # If this is the current active month and it doesn't have an explicit entry yet,
+    # auto-record it into budget_settings using the inherited salary so history builds automatically
+    today_month = get_ist_today().strftime("%Y-%m")
+    if month == today_month and inherited_salary > 0:
+        save_monthly_salary(month, inherited_salary, update_default=False)
+
+    return inherited_salary
+
+
+def save_monthly_salary(month: str, salary: float, update_default: bool = True) -> float:
+    """Save month-specific salary directly into budget_settings table."""
+    salary = max(0.0, float(salary))
+
+    # 1. Save to budget_settings by month
+    try:
+        supabase.table("budget_settings").upsert({
+            "month": month,
+            "monthly_income": salary,
+            "updated_at": "now()"
+        }, on_conflict="month").execute()
+    except Exception as e:
+        print(f"Notice saving monthly salary to budget_settings: {e}")
+
+    # 2. If update_default is True, also update baseline id=1 in budget_settings
+    if update_default:
+        try:
+            supabase.table("budget_settings").upsert({
+                "id": 1,
+                "monthly_income": salary,
+                "updated_at": "now()"
+            }).execute()
+        except Exception as e:
+            print(f"Notice updating default budget_settings: {e}")
+
+    return salary
 
 
 def verify_secret(x_endpoint_secret: str | None = Header(default=None, alias="x-endpoint-secret")):
@@ -1119,16 +1182,20 @@ def summary_entry_page(_=Depends(verify_secret)):
         settings_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).limit(1).execute()
         if settings_res.data:
             monthly_income = float(settings_res.data[0].get("monthly_income") or 0.0)
+        cur_month_str = today.strftime("%Y-%m")
+        monthly_income = get_salary_for_month(cur_month_str, monthly_income)
 
         budgets_res = supabase.table("budgets").select("category, proposed_budget").execute()
         budgets_data = budgets_res.data or []
         budget_map = {b["category"].lower(): float(b.get("proposed_budget") or 0.0) for b in budgets_data}
         total_proposed_variable_budget = round(sum(float(b.get("proposed_budget") or 0.0) for b in budgets_data), 2)
 
-        standing_res = supabase.table("standing_instructions").select("amount").eq("is_active", True).execute()
-        fixed_obligations = round(sum(float(r.get("amount") or 0.0) for r in (standing_res.data or [])), 2)
+        standing_res = supabase.table("standing_instructions").select("amount, expense_type").eq("is_active", True).execute()
+        standing_data = standing_res.data or []
+        fixed_bank_debits = round(sum(float(r.get("amount") or 0.0) for r in standing_data if r.get("expense_type") != "credit"), 2)
+        fixed_obligations = fixed_bank_debits if fixed_bank_debits > 0 else round(month_fixed, 2)
         total_budget = round(fixed_obligations + total_proposed_variable_budget, 2)
-        current_savings = round(monthly_income - month_total, 2) if monthly_income > 0 else 0.0
+        current_savings = round(monthly_income - bank_cash_outflow, 2) if monthly_income > 0 else 0.0
 
         for key, cat_name in [("food", "Food"), ("grocery", "Grocery"), ("shopping", "Shopping")]:
             sp = category_spend_map.get(cat_name, 0.0)
@@ -1316,24 +1383,41 @@ def compute_variable_category_averages() -> dict[str, float]:
 
 
 @app.get("/budgets")
-def get_budgets(_=Depends(verify_secret)):
+def get_budgets(month: str | None = None, _=Depends(verify_secret)):
     """Fetch all variable category budgets, historical averages, current month spending,
-    and savings analysis based on income and spending."""
+    credit card bill impact, and savings analysis based on income and spending.
+    Optionally filter by month (YYYY-MM)."""
     today = get_ist_today()
-    month_start = today.replace(day=1)
-    days_in_month = calendar.monthrange(today.year, today.month)[1]
-    days_elapsed = today.day
+    if month and re.match(r"^\d{4}-\d{2}$", month.strip()):
+        y, m = map(int, month.strip().split("-"))
+        selected_month = f"{y:04d}-{m:02d}"
+        month_start = date(y, m, 1)
+        max_days = calendar.monthrange(y, m)[1]
+        is_current_month = (y == today.year and m == today.month)
+        month_end = date(y, m, min(today.day, max_days)) if is_current_month else date(y, m, max_days)
+        days_in_month = max_days
+        days_elapsed = month_end.day
+    else:
+        selected_month = today.strftime("%Y-%m")
+        month_start = today.replace(day=1)
+        is_current_month = True
+        month_end = today
+        days_in_month = calendar.monthrange(today.year, today.month)[1]
+        days_elapsed = today.day
 
-    # 1. Fetch monthly income from budget_settings
-    monthly_income = 0.0
+    # 1. Fetch baseline default monthly income from budget_settings
+    default_monthly_income = 0.0
     schema_ready = True
     try:
         bs_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).execute()
         if bs_res.data:
-            monthly_income = float(bs_res.data[0].get("monthly_income") or 0.0)
+            default_monthly_income = float(bs_res.data[0].get("monthly_income") or 0.0)
     except Exception as e:
         schema_ready = False
         print(f"budget_settings table notice: {e}")
+
+    # Resolve month-specific salary (falls back to default baseline income)
+    monthly_income = get_salary_for_month(selected_month, default_monthly_income)
 
     # 2. Fetch variable categories
     cat_res = supabase.table("categories").select("name, type").eq("type", "variable").eq("is_active", True).order("name").execute()
@@ -1365,9 +1449,9 @@ def get_budgets(_=Depends(verify_secret)):
     # 6. Fetch this month's spending by category from expenses_flat
     month_rows = (
         supabase.table("expenses_flat")
-        .select("amount, category, category_type, expense_type")
+        .select("amount, category, category_type, expense_type, expense_date, expense")
         .gte("expense_date", str(month_start))
-        .lte("expense_date", str(today))
+        .lte("expense_date", str(month_end))
         .neq("status", "pending_review")
         .execute()
     ).data or []
@@ -1407,18 +1491,45 @@ def get_budgets(_=Depends(verify_secret)):
     # Bank cash outflow (Cash Basis): total cash that left the bank account this month
     current_month_bank_outflow = round(debit_spend_net + credit_card_bill_payments, 2)
 
-    # 7. Credit card billing cycle calculation (16th of prev/current month to 15th of current/next month)
-    if today.day <= 15:
-        cycle_start = (month_start - timedelta(days=1)).replace(day=16)
-        cycle_end = month_start.replace(day=15)
-    else:
-        cycle_start = month_start.replace(day=16)
-        if month_start.month == 12:
-            next_month_start = date(month_start.year + 1, 1, 1)
-        else:
-            next_month_start = date(month_start.year, month_start.month + 1, 1)
-        cycle_end = next_month_start.replace(day=15)
+    # 7. Credit card billing cycle calculation
+    # ACTIVE cycle: the billing period currently accumulating charges (not yet billed)
+    # PREVIOUS closed cycle: the period whose bill is actually DUE this month (paid from this month's salary)
+    #
+    # With a 16th–15th cycle and ~20 day grace, the bill due this month is always the *previous* closed cycle:
+    #   e.g. Today = Sep 30  →  Active: Sep 16–Oct 15 (due Nov)  |  Due this month: Aug 16–Sep 15
+    #   e.g. Today = Oct 20  →  Active: Oct 16–Nov 15 (due Dec)  |  Due this month: Sep 16–Oct 15
 
+    if today.day <= 15:
+        # Active cycle started on the 16th of last month
+        if today.month == 1:
+            cycle_start = date(today.year - 1, 12, 16)
+        else:
+            cycle_start = date(today.year, today.month - 1, 16)
+        cycle_end = date(today.year, today.month, 15)
+
+        # Previous closed cycle: one month earlier
+        if today.month <= 2:
+            prev_cycle_start = date(today.year - 1 if today.month == 1 else today.year, 11 if today.month == 1 else 12, 16)
+            prev_cycle_end   = date(today.year - 1 if today.month == 1 else today.year, 12 if today.month == 1 else 1, 15) if today.month == 1 else date(today.year, today.month - 1, 15)
+        else:
+            prev_cycle_start = date(today.year, today.month - 2, 16)
+            prev_cycle_end   = date(today.year, today.month - 1, 15)
+    else:
+        # Active cycle started on the 16th of this month
+        cycle_start = date(today.year, today.month, 16)
+        if today.month == 12:
+            cycle_end = date(today.year + 1, 1, 15)
+        else:
+            cycle_end = date(today.year, today.month + 1, 15)
+
+        # Previous closed cycle: started 16th of last month, ended 15th of this month
+        if today.month == 1:
+            prev_cycle_start = date(today.year - 1, 12, 16)
+        else:
+            prev_cycle_start = date(today.year, today.month - 1, 16)
+        prev_cycle_end = date(today.year, today.month, 15)
+
+    # Query current ACTIVE cycle (for banner — shows unbilled accumulation)
     credit_cycle_rows = (
         supabase.table("expenses_flat")
         .select("amount")
@@ -1430,13 +1541,64 @@ def get_budgets(_=Depends(verify_secret)):
     )
     current_cycle_credit_total = round(sum(float(r["amount"] or 0.0) for r in (credit_cycle_rows.data or [])), 2)
 
-    # 8. Fetch fixed obligations (active standing instructions)
-    si_res = supabase.table("standing_instructions").select("amount").eq("is_active", True).execute()
-    fixed_obligations = round(sum(float(s["amount"]) for s in (si_res.data or [])), 2)
-    if fixed_obligations == 0:
-        fixed_obligations = round(current_month_fixed_spend_net, 2)
+    # Query PREVIOUS closed cycle (for bill estimate — the bill actually due this month)
+    prev_cycle_rows = (
+        supabase.table("expenses_flat")
+        .select("amount")
+        .eq("expense_type", "credit")
+        .gte("expense_date", str(prev_cycle_start))
+        .lte("expense_date", str(prev_cycle_end))
+        .neq("status", "pending_review")
+        .execute()
+    )
+    prev_cycle_credit_total = round(sum(float(r["amount"] or 0.0) for r in (prev_cycle_rows.data or [])), 2)
 
-    # 9. Assemble category budget list
+    # 8. Fixed obligations: split into direct Bank Debits (Rent, cook, loans) vs Credit-based SIs
+    si_res = supabase.table("standing_instructions").select("amount, expense_type, expense").eq("is_active", True).execute()
+    si_data = si_res.data or []
+    fixed_bank_debits = round(sum(float(s["amount"] or 0.0) for s in si_data if s.get("expense_type") != "credit"), 2)
+    fixed_credit_obligations = round(sum(float(s["amount"] or 0.0) for s in si_data if s.get("expense_type") == "credit"), 2)
+    fixed_obligations_total = round(fixed_bank_debits + fixed_credit_obligations, 2)
+    if fixed_bank_debits == 0:
+        fixed_bank_debits = round(current_month_fixed_spend_net, 2)
+
+    # 9. Credit Card Bill Analysis (Exactly ONE bill per month, settled with salary)
+    # Historical average CC bill (from past CC bill payments)
+    cc_hist = (
+        supabase.table("expenses_flat")
+        .select("amount")
+        .eq("category", "Credit Card")
+        .eq("expense_type", "debit")
+        .neq("status", "pending_review")
+        .order("expense_date", desc=True)
+        .limit(12)
+        .execute()
+    ).data or []
+    historical_avg_cc_bill = round(sum(float(r["amount"] or 0.0) for r in cc_hist) / len(cc_hist), 2) if cc_hist else 0.0
+
+    # Effective CC bill for the month (only ONE bill per month):
+    # Priority:
+    # 1. Actual CC bill payment recorded this month → use exact amount paid
+    # 2. Previous closed cycle total → best estimate of bill due this month
+    #    (the cycle that closed before this month, whose bill is now payable)
+    # 3. Historical average → last resort fallback
+    # NOTE: The currently ACTIVE cycle is intentionally NOT used here — that cycle's
+    #       bill won't be due until next month. It is shown separately in the CC banner.
+    if credit_card_bill_payments > 0:
+        cc_bill_budget = round(credit_card_bill_payments, 2)
+        cc_bill_source = "paid_this_month"
+    elif prev_cycle_credit_total > 0:
+        cc_bill_budget = prev_cycle_credit_total
+        cc_bill_source = "prev_cycle_total"  # bill due this month (from previous closed cycle)
+    else:
+        cc_bill_budget = historical_avg_cc_bill
+        cc_bill_source = "historical_avg"
+
+    # Salary commitments: Fixed Bank Debits + exactly ONE Credit Card Bill for the month
+    salary_commitments = round(fixed_bank_debits + cc_bill_budget, 2)
+    pool_after_commitments = round(monthly_income - salary_commitments, 2) if monthly_income > 0 else 0.0
+
+    # 10. Assemble category budget list
     categories_data = []
     total_proposed_var_budget = 0.0
     total_var_avg_spend = 0.0
@@ -1444,25 +1606,22 @@ def get_budgets(_=Depends(verify_secret)):
     for c in var_categories:
         cname = c["name"]
         
-        if cname in view_map:
+        if cname in budget_map:
+            db_budget = budget_map[cname]
+            avg_val = float(db_budget.get("avg_spending") or computed_avgs.get(cname, 0.0))
+            proposed_val = float(db_budget.get("proposed_budget") or 0.0)
+        elif cname in view_map:
             v_row = view_map[cname]
-            avg_val = float(v_row.get("avg_spending") or 0.0)
+            avg_val = float(v_row.get("avg_spending") or computed_avgs.get(cname, 0.0))
             proposed_val = float(v_row.get("proposed_budget") or 0.0)
-            spent_val = float(v_row.get("current_month_spent") or 0.0)
-            remaining_val = float(v_row.get("remaining") or (proposed_val - spent_val))
-            pct_used = float(v_row.get("percent_used") or 0.0)
         else:
-            db_budget = budget_map.get(cname)
-            if db_budget:
-                avg_val = float(db_budget.get("avg_spending") or computed_avgs.get(cname, 0.0))
-                proposed_val = float(db_budget.get("proposed_budget") or 0.0)
-            else:
-                avg_val = computed_avgs.get(cname, 0.0)
-                proposed_val = avg_val
+            avg_val = computed_avgs.get(cname, 0.0)
+            proposed_val = avg_val
 
-            spent_val = round(month_spent_by_cat.get(cname, 0.0), 2)
-            remaining_val = round(proposed_val - spent_val, 2)
-            pct_used = round((spent_val / proposed_val * 100), 1) if proposed_val > 0 else 0.0
+        # Always calculate spending and remaining from month_spent_by_cat for the selected month
+        spent_val = round(month_spent_by_cat.get(cname, 0.0), 2)
+        remaining_val = round(proposed_val - spent_val, 2)
+        pct_used = round((spent_val / proposed_val * 100), 1) if proposed_val > 0 else 0.0
 
         if spent_val > proposed_val and proposed_val > 0:
             cat_status = "over"
@@ -1490,14 +1649,20 @@ def get_budgets(_=Depends(verify_secret)):
 
     total_proposed_var_budget = round(total_proposed_var_budget, 2)
     total_var_avg_spend = round(total_var_avg_spend, 2)
-    total_budgeted_outflow = round(total_proposed_var_budget + fixed_obligations, 2)
+    
+    # Total Budgeted Outflow incorporates Fixed Obligations + Variable Budgets
+    # Under standard financial planning (Accrual/Lifestyle), category budgets cover ALL spending (both debit & credit card).
+    # Fixed obligations (Rent, EMIs, Cook, subscriptions) + Variable Budgets (Food, Groceries, Shopping, Travel) = Total Planned Outflow.
+    total_budgeted_outflow = round(fixed_obligations_total + total_proposed_var_budget, 2)
 
-    # 10. Savings calculations
-    # Based on Proposed Budgets:
+    # 11. Savings calculations
+    # 11A. Based on Proposed Budgets (Lifestyle Planning / Net Worth Target):
     savings_from_budget = round(monthly_income - total_budgeted_outflow, 2) if monthly_income > 0 else 0.0
     savings_rate_budget = round((savings_from_budget / monthly_income * 100), 1) if monthly_income > 0 else 0.0
 
-    # Based on True Spending so far (Real Consumption):
+    # 11B. Based on True Spending so far (Accrual Basis - Real Consumption across debit + credit):
+    # Standard Accounting: Real Savings = Monthly Income - Real Spend (Credit card bill is an internal transfer, not double counted)
+    real_outflow_so_far = round(current_month_true_spend, 2)
     savings_from_actual = round(monthly_income - current_month_true_spend, 2) if monthly_income > 0 else 0.0
     savings_rate_actual = round((savings_from_actual / monthly_income * 100), 1) if monthly_income > 0 else 0.0
 
@@ -1506,7 +1671,8 @@ def get_budgets(_=Depends(verify_secret)):
     projected_savings = round(monthly_income - projected_month_spend, 2) if monthly_income > 0 else 0.0
     projected_savings_rate = round((projected_savings / monthly_income * 100), 1) if monthly_income > 0 else 0.0
 
-    # Based on Bank Cash Outflow (Debits):
+    # 11C. Based on Bank Cash Outflow (Cash Flow Basis - Bank Account Liquidity):
+    # Cash Flow Accounting: Cash Remaining = Monthly Income - (Direct Debits + CC Bill Paid)
     cash_savings_actual = round(monthly_income - current_month_bank_outflow, 2) if monthly_income > 0 else 0.0
     cash_savings_rate = round((cash_savings_actual / monthly_income * 100), 1) if monthly_income > 0 else 0.0
     projected_bank_outflow = round((current_month_bank_outflow / days_elapsed) * days_in_month, 2) if days_elapsed > 0 else 0.0
@@ -1521,19 +1687,33 @@ def get_budgets(_=Depends(verify_secret)):
             "total_proposed_variable_budget": total_proposed_var_budget,
             "total_variable_avg_spending": total_var_avg_spend,
             "current_month_variable_spent": round(current_month_var_spend, 2),
-            "fixed_obligations": fixed_obligations,
+            "fixed_bank_debits": fixed_bank_debits,
+            "fixed_credit_obligations": fixed_credit_obligations,
+            "fixed_obligations": fixed_bank_debits,
+            "fixed_obligations_total": fixed_obligations_total,
+            "credit_card_bill_budget": cc_bill_budget,
+            "credit_card_bill_source": cc_bill_source,
+            "credit_card_bill_paid": round(credit_card_bill_payments, 2),
+            "historical_avg_cc_bill": historical_avg_cc_bill,
+            "salary_commitments": salary_commitments,
+            "pool_after_commitments": pool_after_commitments,
             "current_month_fixed_spent": round(current_month_fixed_spend_net, 2),
             "current_month_total_spent": current_month_true_spend,
             "credit_card_bill_payments": round(credit_card_bill_payments, 2),
             "debit_spend_net": round(debit_spend_net, 2),
             "credit_spend_total": round(credit_spend_total, 2),
             "bank_cash_outflow": current_month_bank_outflow,
+            "bank_cash_remaining": cash_savings_actual,
             "total_budgeted_outflow": total_budgeted_outflow,
             "credit_card_cycle": {
                 "cycle_start": str(cycle_start),
                 "cycle_end": str(cycle_end),
-                "cycle_range": f"{cycle_start.strftime('%b 16')} – {cycle_end.strftime('%b 15')}",
+                "cycle_range": f"{cycle_start.strftime('%b %d')} – {cycle_end.strftime('%b %d')}",
                 "cycle_total": current_cycle_credit_total,
+                "prev_cycle_start": str(prev_cycle_start),
+                "prev_cycle_end": str(prev_cycle_end),
+                "prev_cycle_range": f"{prev_cycle_start.strftime('%b %d')} – {prev_cycle_end.strftime('%b %d')}",
+                "prev_cycle_total": prev_cycle_credit_total,
             }
         },
         "savings": {
@@ -1542,6 +1722,10 @@ def get_budgets(_=Depends(verify_secret)):
                 "budgeted_outflow": total_budgeted_outflow,
                 "projected_savings": savings_from_budget,
                 "savings_rate": savings_rate_budget,
+                "fixed_bank_debits": fixed_bank_debits,
+                "credit_card_bill": cc_bill_budget,
+                "salary_commitments": salary_commitments,
+                "available_pool": pool_after_commitments,
             },
             "based_on_spending": {
                 "current_spent": current_month_true_spend,
@@ -1562,9 +1746,13 @@ def get_budgets(_=Depends(verify_secret)):
         },
         "meta": {
             "month": month_start.strftime("%B %Y"),
+            "selected_month": selected_month,
+            "is_current_month": is_current_month,
             "days_elapsed": days_elapsed,
             "days_in_month": days_in_month,
             "schema_ready": schema_ready,
+            "default_monthly_income": default_monthly_income,
+            "has_month_salary_override": (selected_month in get_monthly_salaries()),
         }
     }
 
@@ -1696,35 +1884,219 @@ def sync_budget_averages(_=Depends(verify_secret)):
 
 
 @app.get("/budget-settings")
-def get_budget_settings(_=Depends(verify_secret)):
-    """Get current monthly income and budget settings."""
+def get_budget_settings(month: str | None = None, _=Depends(verify_secret)):
+    """Get current monthly income and budget settings, optionally for a specific month."""
+    today = get_ist_today()
+    target_month = month.strip() if month and re.match(r"^\d{4}-\d{2}$", month.strip()) else today.strftime("%Y-%m")
+    default_income = 0.0
     try:
         res = supabase.table("budget_settings").select("*").eq("id", 1).execute()
         if res.data:
-            return {"status": "ok", "settings": res.data[0]}
-        return {"status": "ok", "settings": {"monthly_income": 0.0}}
-    except Exception as e:
-        return {"status": "ok", "settings": {"monthly_income": 0.0}, "schema_ready": False}
+            default_income = float(res.data[0].get("monthly_income") or 0.0)
+    except Exception:
+        pass
+
+    salary = get_salary_for_month(target_month, default_income)
+    return {
+        "status": "ok",
+        "month": target_month,
+        "monthly_income": salary,
+        "default_income": default_income,
+        "has_override": (target_month in get_monthly_salaries()),
+        "settings": {"monthly_income": salary}
+    }
 
 
 @app.post("/budget-settings")
-def update_budget_settings(payload: BudgetSettingsInput, _=Depends(verify_secret)):
-    """Update user's monthly income."""
+@app.patch("/budget-settings")
+@app.patch("/budgets/salary")
+def update_budget_settings(payload: BudgetSettingsInput, month: str | None = None, _=Depends(verify_secret)):
+    """Update user's monthly income. If month is provided, sets salary for that specific month.
+    If month is current or future (or omitted), also updates the baseline default income."""
     income = max(0.0, float(payload.monthly_income))
+    today = get_ist_today()
+    cur_month_str = today.strftime("%Y-%m")
+
+    target_month = payload.month or month
+    if not target_month or not re.match(r"^\d{4}-\d{2}$", target_month.strip()):
+        target_month = cur_month_str
+    target_month = target_month.strip()
+
+    is_current_or_future = (target_month >= cur_month_str)
+
+    # Save to monthly_salaries store
+    saved_salary = save_monthly_salary(target_month, income, update_default=is_current_or_future)
+
+    return {
+        "status": "ok",
+        "month": target_month,
+        "monthly_income": saved_salary,
+        "updated_default": is_current_or_future,
+        "settings": {"monthly_income": saved_salary}
+    }
+
+
+@app.get("/budgets/history")
+def get_budgets_history(_=Depends(verify_secret)):
+    """Fetch monthly historical breakdown of salary, true spend, CC bill paid,
+    bank cash outflow, cash saved, real saved, and budget target performance."""
+    today = get_ist_today()
+    cur_month_str = today.strftime("%Y-%m")
+
+    # 1. Baseline income & salaries map
+    default_income = 0.0
     try:
-        res = supabase.table("budget_settings").upsert({
-            "id": 1,
-            "monthly_income": income,
-        }).execute()
-        return {"status": "ok", "settings": res.data[0] if res.data else {"monthly_income": income}}
-    except Exception as e:
-        err_msg = str(e)
-        if "PGRST205" in err_msg or "budget_settings" in err_msg.lower():
-            raise HTTPException(
-                status_code=400,
-                detail="The 'budget_settings' table does not exist in the database yet. Please run the SQL migration in Supabase SQL Editor."
-            )
-        raise HTTPException(status_code=500, detail=f"Could not update monthly income: {err_msg}")
+        bs_res = supabase.table("budget_settings").select("monthly_income").eq("id", 1).execute()
+        if bs_res.data:
+            default_income = float(bs_res.data[0].get("monthly_income") or 0.0)
+    except Exception:
+        pass
+    salaries_map = get_monthly_salaries()
+
+    # 2. Fixed bank debits from active standing instructions
+    fixed_bank_debits = 0.0
+    try:
+        si_res = supabase.table("standing_instructions").select("amount, expense_type").eq("is_active", True).execute()
+        fixed_bank_debits = round(sum(float(s["amount"] or 0.0) for s in (si_res.data or []) if s.get("expense_type") != "credit"), 2)
+    except Exception:
+        pass
+
+    # 3. Variable budget total from budgets table
+    var_budget_total = 0.0
+    try:
+        b_res = supabase.table("budgets").select("proposed_budget").execute()
+        var_budget_total = round(sum(float(b.get("proposed_budget") or 0.0) for b in (b_res.data or [])), 2)
+    except Exception:
+        pass
+
+    # 4. Fetch monthly_summary view for historical spend
+    ms_map = {}
+    try:
+        ms_res = supabase.table("monthly_summary").select("*").order("month", desc=True).limit(24).execute()
+        for r in (ms_res.data or []):
+            ms_map[r["month"][:7]] = float(r.get("total_amount") or 0.0)
+    except Exception:
+        pass
+
+    # 5. Fetch CC bill payments by month
+    from collections import defaultdict
+    cc_by_month = defaultdict(float)
+    try:
+        cc_res = (
+            supabase.table("expenses_flat")
+            .select("amount, expense_date")
+            .eq("category", "Credit Card")
+            .eq("expense_type", "debit")
+            .neq("status", "pending_review")
+            .execute()
+        )
+        for r in (cc_res.data or []):
+            m = r["expense_date"][:7]
+            cc_by_month[m] += float(r.get("amount") or 0.0)
+    except Exception:
+        pass
+
+    # 6. Fetch credit card spend by month
+    credit_by_month = defaultdict(float)
+    try:
+        credit_res = (
+            supabase.table("expenses_flat")
+            .select("amount, expense_date")
+            .eq("expense_type", "credit")
+            .neq("status", "pending_review")
+            .order("expense_date", desc=True)
+            .limit(5000)
+            .execute()
+        )
+        for r in (credit_res.data or []):
+            m = r["expense_date"][:7]
+            credit_by_month[m] += float(r.get("amount") or 0.0)
+    except Exception:
+        pass
+
+    # 7. Check if upcoming month has expenses or CC bills
+    upcoming_month_str = (date(today.year + (1 if today.month == 12 else 0), 1 if today.month == 12 else today.month + 1, 1)).strftime("%Y-%m")
+    all_months = set(ms_map.keys()) | set(cc_by_month.keys()) | set(salaries_map.keys())
+    all_months.add(cur_month_str)
+    all_months.add(upcoming_month_str)
+
+    history_items = []
+    total_cash_saved_all = 0.0
+    total_salary_all = 0.0
+    completed_months_count = 0
+
+    for m in sorted(all_months, reverse=True):
+        if m < "2025-05":
+            continue
+
+        y, mo = map(int, m.split("-"))
+        m_date = date(y, mo, 1)
+        m_name = m_date.strftime("%B %Y")
+        is_cur = (m == cur_month_str)
+        is_future = (m > cur_month_str)
+
+        salary = salaries_map.get(m, default_income)
+
+        real_spend = round(ms_map.get(m, 0.0), 2)
+        credit_spend = round(credit_by_month.get(m, 0.0), 2)
+        debit_spend = max(0.0, round(real_spend - credit_spend, 2))
+
+        cc_bill_paid = round(cc_by_month.get(m, 0.0), 2)
+        bank_outflow = round(debit_spend + cc_bill_paid, 2)
+
+        cash_saved = round(salary - bank_outflow, 2) if salary > 0 else 0.0
+        cash_savings_rate = round((cash_saved / salary * 100), 1) if salary > 0 else 0.0
+
+        real_saved = round(salary - real_spend, 2) if salary > 0 else 0.0
+        real_savings_rate = round((real_saved / salary * 100), 1) if salary > 0 else 0.0
+
+        target_outflow = round(fixed_bank_debits + var_budget_total, 2)
+        target_savings = round(salary - target_outflow, 2) if salary > 0 else 0.0
+        target_savings_rate = round((target_savings / salary * 100), 1) if salary > 0 else 0.0
+
+        # Include completed past months in totals
+        if not is_future and not is_cur and bank_outflow > 0:
+            total_cash_saved_all += cash_saved
+            total_salary_all += salary
+            completed_months_count += 1
+
+        history_items.append({
+            "month": m,
+            "month_name": m_name,
+            "salary": salary,
+            "has_custom_salary": (m in salaries_map),
+            "is_current": is_cur,
+            "is_future": is_future,
+            "real_spend": real_spend,
+            "credit_spend": credit_spend,
+            "debit_spend": debit_spend,
+            "credit_card_bill_paid": cc_bill_paid,
+            "bank_cash_outflow": bank_outflow,
+            "bank_cash_saved": cash_saved,
+            "bank_cash_savings_rate": cash_savings_rate,
+            "real_saved": real_saved,
+            "real_savings_rate": real_savings_rate,
+            "fixed_bank_debits": fixed_bank_debits,
+            "variable_budget": var_budget_total,
+            "target_outflow": target_outflow,
+            "target_savings": target_savings,
+            "target_savings_rate": target_savings_rate,
+        })
+
+    avg_monthly_savings = round(total_cash_saved_all / completed_months_count, 2) if completed_months_count > 0 else 0.0
+    avg_savings_rate = round((total_cash_saved_all / total_salary_all * 100), 1) if total_salary_all > 0 else 0.0
+
+    return {
+        "status": "ok",
+        "history": history_items,
+        "summary": {
+            "total_saved": round(total_cash_saved_all, 2),
+            "avg_monthly_savings": avg_monthly_savings,
+            "avg_savings_rate": avg_savings_rate,
+            "completed_months_count": completed_months_count,
+            "default_income": default_income,
+        }
+    }
 
 
 @app.get("/health")

@@ -126,7 +126,12 @@
           <div class="stat-card"><div class="label">This Month</div><div class="value" id="statMonth">—</div></div>
           <div class="stat-card"><div class="label">Fixed</div><div class="value" id="statFixed">—</div></div>
           <div class="stat-card"><div class="label">Variable</div><div class="value" id="statVariable">—</div></div>
-          <div class="stat-card wide"><div class="label">Daily Avg (Var)</div><div class="value" id="statAvgVar">—</div></div>
+          <div class="stat-card"><div class="label">Daily Avg (Var)</div><div class="value" id="statAvgVar">—</div></div>
+          <div class="stat-card" id="entryDebitRemainingCard" style="border-color:var(--stamp);">
+            <div class="label" style="color:var(--stamp);">Debit Remaining</div>
+            <div class="value" id="statEntryDebitRemaining" style="font-size:18px;">—</div>
+            <div id="statEntryDebitRemainingRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Cash left in bank</div>
+          </div>
         </div>
       </div>
 
@@ -182,6 +187,23 @@
       document.getElementById('statFixed').textContent = formatRupees(s.month_fixed_total);
       document.getElementById('statVariable').textContent = formatRupees(s.month_variable_total);
       document.getElementById('statAvgVar').textContent = formatRupees(s.avg_daily_variable_spend) + ' / day';
+
+      // Debit Remaining = salary - bank cash outflow (debit spend + CC bill paid)
+      const inc = s.monthly_income || 0;
+      const bankOut = s.bank_cash_outflow || 0;
+      const debitRem = inc > 0 ? inc - bankOut : 0;
+      const debitRemPct = inc > 0 ? (debitRem / inc * 100) : 0;
+      const remEl = document.getElementById('statEntryDebitRemaining');
+      if (remEl) {
+        remEl.textContent = formatRupees(debitRem);
+        remEl.style.color = debitRem >= 0 ? 'var(--stamp)' : 'var(--debit)';
+      }
+      const remRateEl = document.getElementById('statEntryDebitRemainingRate');
+      if (remRateEl) {
+        remRateEl.textContent = inc > 0
+          ? `${formatRupees(bankOut)} debited · ${debitRemPct.toFixed(0)}% left`
+          : 'Cash left in bank';
+      }
     } catch (e) {
       document.getElementById('summaryCard').innerHTML =
         `<div class="empty-state">Could not load summary: ${e.message}</div>`;

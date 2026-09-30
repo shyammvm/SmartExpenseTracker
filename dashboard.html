@@ -339,24 +339,26 @@
           const bankOutflow = Number(data.bank_cash_outflow || 0);
           const debitSavings = inc - bankOutflow;
           const debitRate = (debitSavings / inc) * 100;
+          const ccBillPaid = Number(data.credit_card_bill_payment || 0);
 
           if (debitSavEl) {
             debitSavEl.textContent = formatRupees(debitSavings);
             debitSavEl.style.color = debitSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
           }
           if (debitSubEl) {
-            debitSubEl.textContent = debitSavings >= 0
-              ? `${debitRate.toFixed(0)}% bank cash`
-              : `Bank deficit ${formatRupees(Math.abs(debitSavings))}`;
+            debitSubEl.textContent = ccBillPaid > 0
+              ? `After ${formatRupees(ccBillPaid)} CC bill (${debitRate.toFixed(0)}% left)`
+              : `${debitRate.toFixed(0)}% bank cash (${formatRupees(bankOutflow)} out)`;
           }
 
           if (bSav && propSavEl) {
             const propSavings = Number(bSav.projected_savings ?? 0);
             const propRate = Number(bSav.savings_rate ?? ((propSavings / inc) * 100));
+            const ccBudget = Number(bSav.credit_card_bill || 0);
             propSavEl.textContent = `${formatRupees(propSavings)} / mo`;
             propSavEl.style.color = propSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
             if (propSubEl) {
-              propSubEl.textContent = `${propRate.toFixed(0)}% target`;
+              propSubEl.textContent = `${propRate.toFixed(0)}% target net savings`;
             }
           }
         } else {

@@ -1108,12 +1108,73 @@ select:focus {
   background: #6a6352;
 }
 
+.gauge-seg.cc {
+  background: #6366f1;
+}
+
 .gauge-seg.variable {
   background: #c47c18;
 }
 
 .gauge-seg.savings {
   background: var(--stamp);
+}
+
+/* Salary Commitments Bar */
+.salary-commitments-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  background: var(--paper-warm, rgba(255, 255, 255, 0.03));
+  border: 1px dashed var(--paper-line);
+  padding: 9px 12px;
+  margin-top: 10px;
+  border-radius: 4px;
+}
+
+.sc-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sc-label {
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+.sc-val {
+  font-size: 13.5px;
+  font-family: 'Space Mono', monospace;
+  color: var(--ink);
+}
+
+.sc-plus, .sc-eq {
+  font-family: 'Space Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+.sc-item.highlight {
+  margin-left: auto;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.sc-item.highlight .sc-val {
+  color: var(--stamp);
+}
+
+.stat-card.highlight-cc-card {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.04);
 }
 
 .gauge-legend {
@@ -1631,8 +1692,8 @@ select:focus {
 /* ---- Budgets & Savings Responsive Layout ---- */
 @media (min-width: 768px) {
   .budgets-stat-grid {
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 14px;
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 12px;
   }
 
   /* 3-Column Structured Category Budget Row on Desktop */
@@ -3318,4 +3379,169 @@ html.theme-dark .history-row:hover {
   background: rgba(0, 0, 0, 0.03);
   transform: none;
   box-shadow: none;
+}
+
+/* ==========================================================================
+   📊 HISTORICAL MONTHLY SAVINGS & PERFORMANCE TABLE
+   ========================================================================== */
+.history-savings-card {
+  margin-top: 20px;
+}
+
+.history-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  background: var(--paper-warm, rgba(0,0,0,0.02));
+  border: 1px dashed var(--paper-line);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0 16px;
+}
+
+.h-sum-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.h-sum-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.h-sum-val {
+  font-size: 17px;
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.history-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 8px;
+}
+
+.history-savings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.history-savings-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink-faint);
+  padding: 8px 10px;
+  border-bottom: 1.5px solid var(--paper-line);
+  white-space: nowrap;
+}
+
+.history-savings-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--paper-line);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.history-savings-table tr:hover {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.history-savings-table tr.current-month-row {
+  background: rgba(49, 130, 206, 0.05);
+  font-weight: 600;
+}
+
+.hist-month-badge {
+  font-weight: 700;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hist-cur-pill {
+  font-size: 9px;
+  background: #3b82f6;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.hist-salary-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-salary-edit-inline {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  transition: all 0.15s ease;
+}
+
+.btn-salary-edit-inline:hover {
+  background: var(--paper-warm);
+  color: var(--ink);
+}
+
+.hist-saved-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.hist-saved-pill.positive {
+  color: var(--stamp);
+  background: rgba(31, 92, 79, 0.08);
+}
+
+.hist-saved-pill.negative {
+  color: var(--debit);
+  background: rgba(184, 51, 42, 0.08);
+}
+
+.btn-hist-jump {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--paper-warm, #f8f6f0);
+  border: 1px solid var(--paper-line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-hist-jump:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+@media (max-width: 640px) {
+  .history-summary-strip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }

@@ -77,7 +77,13 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
   <div class="receipt">
     <header style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;">
       <div>
-        <div class="eyebrow" id="monthEyebrow">OUTLOOK</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+          <div class="eyebrow" id="monthEyebrow">OUTLOOK</div>
+          <div style="display:inline-flex;gap:4px;">
+            <button type="button" class="month-nav-btn" id="btnPrevMonth" title="View previous month" style="padding:2px 8px;font-size:11px;">‹ Prev</button>
+            <button type="button" class="month-nav-btn" id="btnNextMonth" title="View next month" style="padding:2px 8px;font-size:11px;">Next ›</button>
+          </div>
+        </div>
         <h1 style="font-size:24px;margin:0;">Income & Savings</h1>
       </div>
       <!-- Dual Mode Switcher -->
@@ -90,10 +96,32 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     <!-- Monthly Income Container -->
     <div class="income-box">
       <div class="income-header-row">
-        <span class="income-label">Monthly Income</span>
+        <span class="income-label">Monthly Salary (<span id="incomeMonthTag">This Month</span>)</span>
         <button type="button" class="income-edit-btn" id="editIncomeBtn">Edit</button>
       </div>
       <div class="income-val" id="incomeDisplay">₹0.00</div>
+
+      <!-- Salary Commitments Breakdown (Day 1 Outflows: Rent + Credit Card Bill) -->
+      <div class="salary-commitments-bar" id="salaryCommitmentsBar" style="display:none;">
+        <div class="sc-item">
+          <span class="sc-label">Fixed Bank Debits</span>
+          <strong class="sc-val" id="scBankDebits">₹0.00</strong>
+        </div>
+        <span class="sc-plus">+</span>
+        <div class="sc-item">
+          <span class="sc-label">Credit Card Bill</span>
+          <strong class="sc-val" id="scCCBill" style="color:#818cf8;">₹0.00</strong>
+        </div>
+        <span class="sc-eq">=</span>
+        <div class="sc-item">
+          <span class="sc-label">Committed on Day 1</span>
+          <strong class="sc-val" id="scCommitted">₹0.00</strong>
+        </div>
+        <div class="sc-item highlight">
+          <span class="sc-label">Pool Left for Month</span>
+          <strong class="sc-val" id="scPoolLeft">₹0.00</strong>
+        </div>
+      </div>
 
       <!-- Hidden Edit Form -->
       <div class="income-edit-form" id="incomeEditForm" style="display:none;">
@@ -124,15 +152,26 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
       </div>
     </div>
 
-    <!-- Active Credit Card Cycle Banner -->
+    <!-- Credit Card Cycle Info: Two rows — bill due this month + active accumulation -->
     <div class="cc-cycle-banner" id="ccCycleBanner" style="display:none;">
-      <div>
-        <strong>💳 CC Cycle (<span id="ccCycleRange">—</span>):</strong>
-        <span id="ccCycleAmount" class="cc-cycle-tag">₹0.00</span> unbilled
+      <!-- Row 1: Previous closed cycle = bill due THIS month (paid from current salary) -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <strong>💳 This Month's Bill</strong>
+        <span style="font-size:10px;color:var(--ink-faint);">(<span id="ccPrevCycleRange">—</span>)</span>
+        <span id="ccPrevCycleAmount" class="cc-cycle-tag" style="color:#818cf8;">₹0.00</span>
+        <span id="ccBillSource" style="font-size:10px;color:var(--ink-faint);font-style:italic;"></span>
+      </div>
+      <!-- Row 2: Current active cycle = accumulating for NEXT month's bill -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;padding-top:4px;border-top:1px solid var(--border-faint,rgba(255,255,255,0.06));">
+        <span style="font-size:10.5px;color:var(--ink-faint);">🔄 Active Cycle</span>
+        <span style="font-size:10px;color:var(--ink-faint);">(<span id="ccCycleRange">—</span>)</span>
+        <span id="ccCycleAmount" class="cc-cycle-tag" style="opacity:0.7;">₹0.00</span>
+        <span style="font-size:10px;color:var(--ink-faint);">→ due next month</span>
+        <span id="ccUpcomingTag" style="margin-left:4px;font-size:10.5px;color:var(--ink-faint);"></span>
       </div>
     </div>
 
-    <!-- Savings Performance Grid -->
+    <!-- Savings Performance Grid (5 Cards) -->
     <div class="stat-grid budgets-stat-grid" style="margin-bottom:14px;">
       <div class="stat-card">
         <div class="label">Target Savings</div>
@@ -145,29 +184,34 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
         <div id="statActualSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
       <div class="stat-card">
-        <div class="label">Fixed Obligations</div>
+        <div class="label">Fixed Bank Debits</div>
         <div class="value" id="statFixedCommitments" style="font-size:18px;">—</div>
-        <div style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Standing orders</div>
+        <div id="statFixedCommitmentsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Rent, EMIs</div>
       </div>
-      <div class="stat-card">
-        <div class="label" id="lblProjectedSavings">Projected Savings</div>
-        <div class="value" id="statProjectedSavings" style="font-size:18px;">—</div>
-        <div id="statProjectedSavingsRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
+      <div class="stat-card highlight-cc-card">
+        <div class="label" style="color:#818cf8;">Credit Card Bill</div>
+        <div class="value" id="statCCBill" style="color:#818cf8;font-size:18px;">—</div>
+        <div id="statCCBillRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Paid with salary</div>
+      </div>
+      <div class="stat-card" id="debitRemainingCard">
+        <div class="label">Debit Remaining</div>
+        <div class="value" id="statDebitRemaining" style="font-size:18px;">—</div>
+        <div id="statDebitRemainingRate" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Cash left in bank</div>
       </div>
     </div>
 
     <!-- Allocation Visual Gauge -->
     <div class="savings-gauge-wrap">
-      <label style="margin-bottom:4px;font-size:10px;">Income Allocation</label>
+      <label style="margin-bottom:4px;font-size:10px;">Income Allocation (Salary Framework)</label>
       <div class="savings-gauge" id="savingsGauge">
         <div class="gauge-seg fixed" id="gaugeFixed" style="width:0%;" title="Fixed Obligations"></div>
         <div class="gauge-seg variable" id="gaugeVariable" style="width:0%;" title="Variable Budgets"></div>
         <div class="gauge-seg savings" id="gaugeSavings" style="width:0%;" title="Target Savings"></div>
       </div>
       <div class="gauge-legend">
-        <div class="gauge-item"><span class="gauge-dot" style="background:#6a6352;"></span> Fixed: <span id="legFixed">—</span></div>
-        <div class="gauge-item"><span class="gauge-dot" style="background:#c47c18;"></span> Variable: <span id="legVar">—</span></div>
-        <div class="gauge-item"><span class="gauge-dot" style="background:var(--stamp);"></span> Savings: <span id="legSavings">—</span></div>
+        <div class="gauge-item"><span class="gauge-dot" style="background:#6a6352;"></span> Fixed Needs: <span id="legFixed">—</span></div>
+        <div class="gauge-item"><span class="gauge-dot" style="background:#c47c18;"></span> Variable Lifestyle: <span id="legVar">—</span></div>
+        <div class="gauge-item"><span class="gauge-dot" style="background:var(--stamp);"></span> Target Savings: <span id="legSavings">—</span></div>
       </div>
     </div>
   </div>
@@ -211,6 +255,8 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     <div class="status" id="budgetStatus" style="margin-top:10px;"></div>
   </div>
 
+
+
   <!-- Auto-Allocate Budgets Modal -->
   <div class="modal-overlay" id="autoAllocModal" style="display:none;">
     <div class="auto-alloc-modal-card">
@@ -226,17 +272,24 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
         <!-- Financial Base Summary -->
         <div class="auto-alloc-base-summary">
           <div class="alloc-base-item">
-            <span class="alloc-lbl">Income</span>
+            <span class="alloc-lbl">Monthly Salary</span>
             <span class="alloc-val" id="allocIncomeVal">₹0.00</span>
           </div>
           <div class="alloc-base-item">
-            <span class="alloc-lbl">Fixed Needs</span>
+            <span class="alloc-lbl">Fixed Needs (Rent, EMIs)</span>
             <span class="alloc-val" id="allocFixedVal">₹0.00</span>
           </div>
           <div class="alloc-base-item highlight">
-            <span class="alloc-lbl">Available Pool</span>
+            <span class="alloc-lbl">Lifestyle & Savings Pool</span>
             <span class="alloc-val" id="allocPoolVal">₹0.00</span>
           </div>
+          <div class="alloc-base-item">
+            <span class="alloc-lbl">Day 1 CC Bill</span>
+            <span class="alloc-val" id="allocCCVal" style="color:#818cf8;">₹0.00</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--ink-faint);margin:6px 0 10px;line-height:1.4;">
+          💡 <em>Financial Standard:</em> Variable budgets cover all lifestyle spending (Debit + Credit Card). Staying within budget automatically covers upcoming credit card bills.
         </div>
 
         <!-- Strategy Presets -->
@@ -376,15 +429,16 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     saveIncomeBtn.disabled = true;
     saveIncomeBtn.textContent = 'Saving…';
     try {
+      const monthParam = formatMonthParam(viewDate);
       await apiFetch('/budget-settings', {
         method: 'POST',
-        body: JSON.stringify({ monthly_income: val })
+        body: JSON.stringify({ monthly_income: val, month: monthParam })
       });
       incomeEditForm.style.display = 'none';
       incomeDisplay.style.display = 'block';
       editIncomeBtn.style.display = 'inline-block';
-      showStatus('Monthly income saved ✓');
-      loadBudgets();
+      showStatus(`Monthly salary saved for ${document.getElementById('incomeMonthTag')?.textContent || monthParam} ✓`);
+      await loadBudgets();
     } catch (e) {
       showStatus(e.message, true);
     } finally {
@@ -431,10 +485,35 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
     if (meta.month) {
       document.getElementById('monthEyebrow').textContent = `${meta.month.toUpperCase()} OUTLOOK`;
+      const monthTagEl = document.getElementById('incomeMonthTag');
+      if (monthTagEl) {
+        monthTagEl.textContent = meta.month;
+      }
     }
 
     // Monthly Income
     incomeDisplay.textContent = formatRupees(inc);
+
+    // Salary Commitments Breakdown (Day 1: Direct Debits + CC Bill)
+    const scBar = document.getElementById('salaryCommitmentsBar');
+    if (scBar) {
+      if (inc > 0) {
+        scBar.style.display = 'flex';
+        const bankDebits = totals.fixed_bank_debits ?? totals.fixed_obligations ?? 0;
+        const ccBill = totals.credit_card_bill_budget ?? 0;
+        const commAmt = bankDebits + ccBill;
+        const poolAmt = Math.max(0, inc - commAmt);
+        const commPct = inc > 0 ? (commAmt / inc * 100) : 0;
+        const poolPct = inc > 0 ? (poolAmt / inc * 100) : 0;
+
+        document.getElementById('scBankDebits').textContent = formatRupees(bankDebits);
+        document.getElementById('scCCBill').textContent = formatRupees(ccBill);
+        document.getElementById('scCommitted').textContent = `${formatRupees(commAmt)} (${commPct.toFixed(0)}%)`;
+        document.getElementById('scPoolLeft').textContent = `${formatRupees(poolAmt)} (${poolPct.toFixed(0)}%)`;
+      } else {
+        scBar.style.display = 'none';
+      }
+    }
 
     const isReal = (currentBudgetMode === 'real');
     const budgetSav = savings.based_on_budget || {};
@@ -456,8 +535,8 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     const meterTitleEl = document.getElementById('spendMeterTitle');
     if (meterTitleEl) {
       meterTitleEl.textContent = isReal
-        ? 'Actual Spend vs. Income (MTD · Real Outflow)'
-        : 'Bank Cash Debits vs. Income (MTD · Cash Basis)';
+        ? 'Real Spend vs. Income (MTD · Accrual Basis)'
+        : 'Bank Cash Outflow vs. Income (MTD · Cash Basis)';
     }
 
     const meterValEl = document.getElementById('spendMeterVal');
@@ -491,10 +570,13 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
     if (remainingStatusEl) {
       if (activeUnspent >= 0) {
-        remainingStatusEl.textContent = `${formatRupees(activeUnspent)} unspent (${activeUnspentRate.toFixed(1)}% remaining)`;
+        const unspentText = isReal
+          ? `${formatRupees(activeUnspent)} saved so far (${activeUnspentRate.toFixed(1)}% of salary)`
+          : `${formatRupees(activeUnspent)} cash in bank (${activeUnspentRate.toFixed(1)}% remaining)`;
+        remainingStatusEl.textContent = unspentText;
         remainingStatusEl.style.color = 'var(--ink)';
       } else {
-        remainingStatusEl.textContent = `${formatRupees(Math.abs(activeUnspent))} over monthly income`;
+        remainingStatusEl.textContent = `${formatRupees(Math.abs(activeUnspent))} deficit from monthly income`;
         remainingStatusEl.style.color = 'var(--debit)';
       }
     }
@@ -522,71 +604,130 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
     const breakdownSubEl = document.getElementById('spendBreakdownSub');
     if (breakdownSubEl) {
+      const ccPaid = totals.credit_card_bill_paid || 0;
+      const ccBudget = totals.credit_card_bill_budget || 0;
       if (isReal) {
-        breakdownSubEl.innerHTML = `<strong>Real Outflow:</strong> ${formatRupees(totals.debit_spend_net || 0)} Debit + ${formatRupees(totals.credit_spend_total || 0)} Credit Card · <em>Excludes ${formatRupees(totals.credit_card_bill_payments || 0)} CC bill debt payment to eliminate double counting</em>`;
+        breakdownSubEl.innerHTML = `<strong>Real Lifestyle Spend:</strong> ${formatRupees(totals.debit_spend_net || 0)} Debit + ${formatRupees(totals.credit_spend_total || 0)} Credit Card · <em>CC bill settlement excluded to eliminate double counting</em>`;
       } else {
-        breakdownSubEl.innerHTML = `<strong>Bank Cash Outflow:</strong> ${formatRupees(totals.debit_spend_net || 0)} Daily Bank Debits + ${formatRupees(totals.credit_card_bill_payments || 0)} CC Bill Paid · <em>Actual rupees debited from your bank account</em>`;
+        breakdownSubEl.innerHTML = `<strong>Bank Cash Outflow:</strong> ${formatRupees(totals.debit_spend_net || 0)} Daily Bank Debits + ${formatRupees(ccPaid)} CC Bill Paid · <em>Leaves ${formatRupees(totals.bank_cash_remaining || 0)} in bank</em>`;
       }
     }
 
-    // 2. Active Credit Card Cycle Banner
+    // 2. Credit Card Cycle Banner — two rows: bill due this month + active accumulation
     const ccCycle = totals.credit_card_cycle;
     const bannerEl = document.getElementById('ccCycleBanner');
     if (bannerEl && ccCycle && ccCycle.cycle_range) {
       bannerEl.style.display = 'flex';
+      bannerEl.style.flexDirection = 'column';
+
+      // Row 1: Previous closed cycle = bill due THIS month
+      const prevRangeEl = document.getElementById('ccPrevCycleRange');
+      if (prevRangeEl) prevRangeEl.textContent = ccCycle.prev_cycle_range || '—';
+      const prevAmtEl = document.getElementById('ccPrevCycleAmount');
+      if (prevAmtEl) prevAmtEl.textContent = formatRupees(ccCycle.prev_cycle_total || 0);
+
+      // Show source label (paid / estimated from closed cycle / historical avg)
+      const billSrcEl = document.getElementById('ccBillSource');
+      if (billSrcEl) {
+        const src = totals.credit_card_bill_source || '';
+        if (src === 'paid_this_month') billSrcEl.textContent = '✓ paid';
+        else if (src === 'prev_cycle_total') billSrcEl.textContent = 'est. from closed cycle';
+        else if (src === 'historical_avg') billSrcEl.textContent = 'est. from hist. avg';
+        else billSrcEl.textContent = '';
+      }
+
+      // Row 2: Active cycle = accumulating for NEXT month's bill
       const rangeEl = document.getElementById('ccCycleRange');
       if (rangeEl) rangeEl.textContent = ccCycle.cycle_range;
       const amtEl = document.getElementById('ccCycleAmount');
       if (amtEl) amtEl.textContent = formatRupees(ccCycle.cycle_total || 0);
+
+      const upTagEl = document.getElementById('ccUpcomingTag');
+      if (upTagEl) upTagEl.textContent = '';
     }
 
-    // 3. Savings Cards
+
+    // 3. Savings Cards (5 Cards)
     const bSavVal = Number(budgetSav.projected_savings || 0);
     const bSavRate = Number(budgetSav.savings_rate || 0);
     const statBudgetEl = document.getElementById('statBudgetSavings');
     statBudgetEl.textContent = formatRupees(bSavVal);
     statBudgetEl.style.color = bSavVal >= 0 ? 'var(--stamp)' : 'var(--debit)';
-    document.getElementById('statBudgetSavingsRate').textContent = inc > 0 ? `${bSavRate}% of income` : 'Set income above';
+    document.getElementById('statBudgetSavingsRate').textContent = inc > 0 ? `${bSavRate}% of income (planned net savings)` : 'Set income above';
+
+    // Compute and declare ccBillVal early
+    const ccBillVal = totals.credit_card_bill_budget || totals.credit_card_bill_paid || 0;
+    const bankDebitsAmt = totals.fixed_bank_debits || totals.fixed_obligations || 0;
 
     const lblActualEl = document.getElementById('lblActualSavings');
     if (lblActualEl) {
-      lblActualEl.textContent = isReal ? 'Current Unspent' : 'Bank Cash Remaining';
+      lblActualEl.textContent = isReal ? 'Current Saved' : 'Bank Cash Remaining';
     }
     const statActualEl = document.getElementById('statActualSavings');
     statActualEl.textContent = formatRupees(activeUnspent);
-    statActualEl.style.color = activeUnspent >= 0 ? 'var(--stamp)' : 'var(--debit)';
-    document.getElementById('statActualSavingsRate').textContent = inc > 0 ? `${formatRupees(activeSpent)} spent (${spendPct.toFixed(1)}%)` : '—';
+    document.getElementById('statActualSavingsRate').textContent = inc > 0 ? `${formatRupees(activeSpent)} spend (${spendPct.toFixed(1)}%)` : '—';
 
-    document.getElementById('statFixedCommitments').textContent = formatRupees(totals.fixed_obligations || 0);
+    document.getElementById('statFixedCommitments').textContent = formatRupees(bankDebitsAmt);
 
-    const lblProjEl = document.getElementById('lblProjectedSavings');
-    if (lblProjEl) {
-      lblProjEl.textContent = isReal ? 'Projected Month-End Savings' : 'Projected Cash Savings';
+    // CC Bill Card
+    const statCCBillEl = document.getElementById('statCCBill');
+    if (statCCBillEl) {
+      statCCBillEl.textContent = formatRupees(ccBillVal);
     }
-    const statProjEl = document.getElementById('statProjectedSavings');
-    statProjEl.textContent = formatRupees(activeProjSavings);
-    statProjEl.style.color = activeProjSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
-    document.getElementById('statProjectedSavingsRate').textContent = inc > 0 ? `${activeProjRate}% (Day ${daysElapsed}/${daysInMonth})` : '—';
+    const statCCBillRateEl = document.getElementById('statCCBillRate');
+    if (statCCBillRateEl) {
+      statCCBillRateEl.textContent = totals.credit_card_bill_source === 'paid_this_month'
+        ? 'Paid with salary ✓'
+        : (totals.upcoming_cc_bill > 0 ? `Upcoming bill due ${totals.upcoming_cc_bill_date || ''}` : 'Estimated for salary');
+    }
 
-    // 4. Allocation Gauge
+    // Debit Remaining Card (always visible, mode-independent)
+    // = Salary − all bank cash outflow (direct debits + CC bill paid) = physical cash left in bank
+    const debitRemainingVal = totals.bank_cash_remaining ?? (inc > 0 ? inc - (totals.bank_cash_outflow || 0) : 0);
+    const debitRemainingPct = inc > 0 ? (debitRemainingVal / inc * 100) : 0;
+    const statDebitRemEl = document.getElementById('statDebitRemaining');
+    if (statDebitRemEl) {
+      statDebitRemEl.textContent = formatRupees(debitRemainingVal);
+      statDebitRemEl.style.color = debitRemainingVal >= 0 ? 'var(--stamp)' : 'var(--debit)';
+    }
+    const statDebitRemRateEl = document.getElementById('statDebitRemainingRate');
+    if (statDebitRemRateEl) {
+      const bankOut = totals.bank_cash_outflow || 0;
+      statDebitRemRateEl.textContent = inc > 0
+        ? `${formatRupees(bankOut)} debited · ${debitRemainingPct.toFixed(0)}% left`
+        : 'Cash left in bank';
+    }
+
+    // 4. Allocation Gauge (3 Components: Fixed Needs, Variable Lifestyle, Target Savings)
     if (inc > 0) {
-      const fixedPct = Math.min(100, Math.max(0, (totals.fixed_obligations / inc) * 100));
-      const varPct = Math.min(100 - fixedPct, Math.max(0, (totals.total_proposed_variable_budget / inc) * 100));
+      const fixedAmt = totals.fixed_bank_debits ?? totals.fixed_obligations ?? 0;
+      const varAmt = totals.total_proposed_variable_budget ?? 0;
+
+      const fixedPct = Math.min(100, Math.max(0, (fixedAmt / inc) * 100));
+      const varPct = Math.min(100 - fixedPct, Math.max(0, (varAmt / inc) * 100));
       const savPct = Math.max(0, 100 - fixedPct - varPct);
 
       document.getElementById('gaugeFixed').style.width = `${fixedPct}%`;
+      const gaugeCCEl = document.getElementById('gaugeCC');
+      if (gaugeCCEl) gaugeCCEl.style.display = 'none';
       document.getElementById('gaugeVariable').style.width = `${varPct}%`;
       document.getElementById('gaugeSavings').style.width = `${savPct}%`;
 
-      document.getElementById('legFixed').textContent = `${formatRupees(totals.fixed_obligations)} (${fixedPct.toFixed(1)}%)`;
-      document.getElementById('legVar').textContent = `${formatRupees(totals.total_proposed_variable_budget)} (${varPct.toFixed(1)}%)`;
+      document.getElementById('legFixed').textContent = `${formatRupees(fixedAmt)} (${fixedPct.toFixed(1)}%)`;
+      const legCCEl = document.getElementById('legCC');
+      if (legCCEl) legCCEl.style.display = 'none';
+      document.getElementById('legVar').textContent = `${formatRupees(varAmt)} (${varPct.toFixed(1)}%)`;
       document.getElementById('legSavings').textContent = `${formatRupees(bSavVal)} (${savPct.toFixed(1)}%)`;
     } else {
-      document.getElementById('gaugeFixed').style.width = '50%';
-      document.getElementById('gaugeVariable').style.width = '50%';
-      document.getElementById('gaugeSavings').style.width = '0%';
-      document.getElementById('legFixed').textContent = formatRupees(totals.fixed_obligations);
-      document.getElementById('legVar').textContent = formatRupees(totals.total_proposed_variable_budget);
+      document.getElementById('gaugeFixed').style.width = '33.3%';
+      const gaugeCCEl = document.getElementById('gaugeCC');
+      if (gaugeCCEl) gaugeCCEl.style.display = 'none';
+      document.getElementById('gaugeVariable').style.width = '33.3%';
+      document.getElementById('gaugeSavings').style.width = '33.4%';
+      document.getElementById('legFixed').textContent = '—';
+      const legCCEl = document.getElementById('legCC');
+      if (legCCEl) legCCEl.style.display = 'none';
+      document.getElementById('legVar').textContent = '—';
       document.getElementById('legSavings').textContent = 'Set income';
     }
 
@@ -677,9 +818,35 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     document.getElementById('totBudgetedOutflow').textContent = formatRupees(totals.total_budgeted_outflow || 0);
   }
 
+  let viewDate = new Date();
+
+  function formatMonthParam(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+
+  const btnPrevMonth = document.getElementById('btnPrevMonth');
+  const btnNextMonth = document.getElementById('btnNextMonth');
+
+  if (btnPrevMonth) {
+    btnPrevMonth.addEventListener('click', () => {
+      viewDate.setMonth(viewDate.getMonth() - 1);
+      loadBudgets();
+    });
+  }
+
+  if (btnNextMonth) {
+    btnNextMonth.addEventListener('click', () => {
+      viewDate.setMonth(viewDate.getMonth() + 1);
+      loadBudgets();
+    });
+  }
+
   async function loadBudgets() {
     try {
-      const data = await apiFetch('/budgets');
+      const monthParam = formatMonthParam(viewDate);
+      const data = await apiFetch(`/budgets?month=${monthParam}`);
       renderBudgetData(data);
     } catch (e) {
       document.getElementById('budgetItemsList').innerHTML =
@@ -741,7 +908,10 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     }
 
     const inc = Number(cachedData.monthly_income || 0);
-    const fixed = Number(cachedData.totals?.fixed_obligations || 0);
+    const fixed = Number(cachedData.totals?.fixed_bank_debits ?? cachedData.totals?.fixed_obligations ?? 0);
+    const ccBill = Number(cachedData.totals?.credit_card_bill_budget ?? 0);
+    const committed = fixed + ccBill;
+    // Under financial standards, Available Pool for Variable Lifestyle & Savings is Income - Fixed Obligations:
     const pool = Math.max(0, inc - fixed);
     const histTotal = Number(cachedData.totals?.total_variable_avg_spending || 0);
     const cats = (cachedData.categories || []).map(c => ({
@@ -752,6 +922,8 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
     allocState.income = inc;
     allocState.fixed = fixed;
+    allocState.ccBill = ccBill;
+    allocState.committed = committed;
     allocState.pool = pool;
     allocState.histTotal = histTotal;
     allocState.categories = cats;
@@ -760,33 +932,38 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     // Populate base summary
     const fixedPct = inc > 0 ? (fixed / inc) * 100 : 0;
     const poolPct = inc > 0 ? (pool / inc) * 100 : 0;
+
     allocIncomeVal.textContent = formatRupees(inc);
     allocFixedVal.textContent = `${formatRupees(fixed)} (${fixedPct.toFixed(1)}%)`;
+    const allocCCValEl = document.getElementById('allocCCVal');
+    if (allocCCValEl) {
+      allocCCValEl.textContent = `${formatRupees(ccBill)}`;
+    }
     allocPoolVal.textContent = `${formatRupees(pool)} (${poolPct.toFixed(1)}%)`;
-    allocFixedSubDisplay.textContent = formatRupees(fixed);
-
-    // Update preset ratios based on actual user numbers
-    // 1. Balanced: uses historical average variable spend
-    const balancedVar = histTotal;
-    const balancedSav = Math.max(0, inc - fixed - balancedVar);
-    const balancedSavPct = inc > 0 ? (balancedSav / inc) * 100 : 0;
-    const balancedVarPct = inc > 0 ? (balancedVar / inc) * 100 : 0;
+    allocFixedSubDisplay.textContent = `${formatRupees(fixed)} Fixed Needs`;    // Standard financial framework ratios (Needs % · Variable % · Savings %)
+    // 1. Balanced: uses historical variable spend, rest to savings
+    const balancedVar = Math.min(pool, histTotal > 0 ? histTotal : Math.round(inc * 0.40));
+    const balancedSav = Math.max(0, pool - balancedVar);
+    const balancedSavPct = inc > 0 ? (balancedSav / inc * 100) : 0;
+    const balancedVarPct = inc > 0 ? (balancedVar / inc * 100) : 0;
     document.getElementById('ratioBalanced').textContent =
       `${fixedPct.toFixed(0)}% Needs · ${balancedVarPct.toFixed(0)}% Var · ${balancedSavPct.toFixed(0)}% Save`;
 
-    // 2. Standard 50/30/20 adapted to their ~40% needs (40/30/30)
-    const stdVar = Math.round(inc * 0.30);
-    const stdSav = Math.max(0, inc - fixed - stdVar);
-    const stdSavPct = inc > 0 ? (stdSav / inc) * 100 : 0;
+    // 2. Standard 50/30/20 adapted to fixed needs
+    const stdVarPctVal = Math.min(Math.round(poolPct), 30);
+    const stdVar = Math.round(inc * (stdVarPctVal / 100));
+    const stdSav = Math.max(0, pool - stdVar);
+    const stdSavPct = inc > 0 ? (stdSav / inc * 100) : 0;
     document.getElementById('ratioStandard').textContent =
-      `${fixedPct.toFixed(0)}% Needs · 30% Var · ${stdSavPct.toFixed(0)}% Save`;
+      `${fixedPct.toFixed(0)}% Needs · ${stdVarPctVal}% Var · ${stdSavPct.toFixed(0)}% Save`;
 
-    // 3. Aggressive FIRE (40/25/35)
-    const aggVar = Math.round(inc * 0.25);
-    const aggSav = Math.max(0, inc - fixed - aggVar);
-    const aggSavPct = inc > 0 ? (aggSav / inc) * 100 : 0;
+    // 3. Aggressive FIRE
+    const aggVarPctVal = Math.min(Math.round(poolPct), 20);
+    const aggVar = Math.round(inc * (aggVarPctVal / 100));
+    const aggSav = Math.max(0, pool - aggVar);
+    const aggSavPct = inc > 0 ? (aggSav / inc * 100) : 0;
     document.getElementById('ratioAggressive').textContent =
-      `${fixedPct.toFixed(0)}% Needs · 25% Var · ${aggSavPct.toFixed(0)}% Save`;
+      `${fixedPct.toFixed(0)}% Needs · ${aggVarPctVal}% Var · ${aggSavPct.toFixed(0)}% Save`;
 
     selectPreset('balanced');
     autoAllocModal.style.display = 'flex';
@@ -804,27 +981,27 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
     });
 
     const inc = allocState.income;
-    const fixed = allocState.fixed;
+    const pool = allocState.pool;
     let targetVar = 0;
     let targetSav = 0;
     let targetSavRate = 20;
 
     if (presetKey === 'balanced') {
-      targetVar = allocState.histTotal;
-      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetVar = Math.min(pool, allocState.histTotal > 0 ? allocState.histTotal : Math.round(inc * 0.40));
+      targetSav = Math.max(0, pool - targetVar);
       targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
     } else if (presetKey === 'standard') {
-      targetVar = Math.round(inc * 0.30);
-      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetVar = Math.min(pool, Math.round(inc * 0.30));
+      targetSav = Math.max(0, pool - targetVar);
       targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
     } else if (presetKey === 'aggressive') {
-      targetVar = Math.round(inc * 0.25);
-      targetSav = Math.max(0, inc - fixed - targetVar);
+      targetVar = Math.min(pool, Math.round(inc * 0.20));
+      targetSav = Math.max(0, pool - targetVar);
       targetSavRate = inc > 0 ? (targetSav / inc) * 100 : 0;
     } else if (presetKey === 'custom') {
       targetSavRate = parseFloat(allocSavingsSlider.value) || 20;
       targetSav = inc * (targetSavRate / 100);
-      targetVar = Math.max(0, inc - fixed - targetSav);
+      targetVar = Math.max(0, pool - targetSav);
     }
 
     allocState.targetVarPool = Math.round(targetVar);
@@ -990,9 +1167,9 @@ on conflict (category) do update set avg_spending = excluded.avg_spending;</pre>
 
       const rate = parseFloat(e.target.value) || 0;
       const inc = allocState.income;
-      const fixed = allocState.fixed;
+      const pool = allocState.pool;
       const sav = inc * (rate / 100);
-      const varPool = Math.max(0, inc - fixed - sav);
+      const varPool = Math.max(0, pool - sav);
 
       allocState.targetSavingsRate = rate;
       allocState.targetSavings = Math.round(sav);

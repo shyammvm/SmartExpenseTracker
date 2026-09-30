@@ -838,13 +838,22 @@
       }
 
       // Calculate totals across ALL filtered expenses
-      let debitTotal = 0;
-      let creditTotal = 0;
+      let debitSpend = 0;
+      let creditSpend = 0;
+      let ccBillPayments = 0;
       allItems.forEach(x => {
         const amt = Number(x.amount) || 0;
-        if (x.expense_type === 'credit') creditTotal += amt;
-        else debitTotal += amt;
+        const isCCBill = (x.category === 'Credit Card' && (x.expense_type || 'debit') === 'debit');
+        if (isCCBill) {
+          ccBillPayments += amt;
+        } else if (x.expense_type === 'credit') {
+          creditSpend += amt;
+        } else {
+          debitSpend += amt;
+        }
       });
+      const realLifestyleSpend = debitSpend + creditSpend;
+      const bankCashOutflow = debitSpend + ccBillPayments;
 
       const filterDesc = getActiveFilterDescription();
       const generatedDate = formatDisplayDate(formatYMD(new Date()));
@@ -870,19 +879,20 @@
             <div><strong>Scope:</strong> All ${allItems.length} matching transactions (Complete Filter Export)</div>
           </div>
 
-          <!-- Financial Breakdown Summary -->
+          <!-- Financial Breakdown Summary (Financial Standards Compliant) -->
           <div style="display: flex; gap: 10px; margin-bottom: 16px;">
             <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
-              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Bank Debits</div>
-              <div style="font-size: 16px; font-weight: 700; color: #9c3b2e; margin-top: 2px;">${formatRupees(debitTotal)}</div>
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Bank Lifestyle Debits</div>
+              <div style="font-size: 16px; font-weight: 700; color: #9c3b2e; margin-top: 2px;">${formatRupees(debitSpend)}</div>
             </div>
             <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
-              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Credit Swipes</div>
-              <div style="font-size: 16px; font-weight: 700; color: #1F5C4F; margin-top: 2px;">${formatRupees(creditTotal)}</div>
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Credit Card Swipes</div>
+              <div style="font-size: 16px; font-weight: 700; color: #1F5C4F; margin-top: 2px;">${formatRupees(creditSpend)}</div>
             </div>
             <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
-              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Net Outflow</div>
-              <div style="font-size: 16px; font-weight: 700; color: #23241F; margin-top: 2px;">${formatRupees(debitTotal + creditTotal)}</div>
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Real Lifestyle Spend</div>
+              <div style="font-size: 16px; font-weight: 700; color: #23241F; margin-top: 2px;">${formatRupees(realLifestyleSpend)}</div>
+              ${ccBillPayments > 0 ? `<div style="font-size: 8.5px; color: #818cf8; margin-top: 2px;">+ ${formatRupees(ccBillPayments)} CC Bill paid</div>` : ''}
             </div>
           </div>
 
@@ -912,8 +922,8 @@
             </tbody>
             <tfoot>
               <tr style="border-top: 2px solid #23241F; font-weight: 700; background: #F4F1EA;">
-                <td colspan="4" style="padding: 7px 6px; text-transform: uppercase; font-size: 10px;">Total Outflow (${allItems.length} transactions)</td>
-                <td style="padding: 7px 6px; text-align: right; font-size: 12px; color: #1F5C4F;">${formatRupees(debitTotal + creditTotal)}</td>
+                <td colspan="4" style="padding: 7px 6px; text-transform: uppercase; font-size: 10px;">Total Real Outflow (${allItems.length} transactions)</td>
+                <td style="padding: 7px 6px; text-align: right; font-size: 12px; color: #1F5C4F;">${formatRupees(realLifestyleSpend)}</td>
               </tr>
             </tfoot>
           </table>
