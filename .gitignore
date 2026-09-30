@@ -6,3 +6,5 @@ schema.sql
 widget_preview.html
 fix_double_counting_views.sql
 budget_migration.sql
+looker_studio_view.sql
+scripts/expense_ledger_widget.js
