@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#B8B2A0">
 <title>Standing Instructions — Ledger</title>
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
@@ -200,6 +201,19 @@
       const endDateText = inst.end_date ? `Until ${inst.end_date}` : 'Recurs indefinitely';
       const typeBadgeClass = inst.expense_type === 'credit' ? 'badge-credit' : 'badge-debit';
 
+      let dueCountdownHtml = '';
+      if (inst.is_active !== false) {
+        const today = new Date();
+        const currentDay = today.getDate();
+        let daysAway = (inst.day_of_month >= currentDay)
+          ? (inst.day_of_month - currentDay)
+          : (new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - currentDay + inst.day_of_month);
+
+        let dueClass = daysAway <= 3 ? 'upcoming-due-soon' : 'upcoming-due-later';
+        let dueLabel = daysAway === 0 ? 'Due Today' : (daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`);
+        dueCountdownHtml = `<span class="upcoming-days-tag ${dueClass}" style="margin-left:6px;vertical-align:middle;">${dueLabel}</span>`;
+      }
+
       card.innerHTML = `
         <div class="instruction-header">
           <div class="title">${escapeHtml(inst.expense)}</div>
@@ -211,7 +225,7 @@
           ${!inst.is_active ? `<span class="instruction-meta-badge badge-inactive">Paused</span>` : ''}
         </div>
         <div class="instruction-schedule">
-          📅 Day <strong>${inst.day_of_month}</strong> of each month &bull; ${endDateText}
+          📅 Day <strong>${inst.day_of_month}</strong> of each month ${dueCountdownHtml} &bull; ${endDateText}
         </div>
         <div class="instruction-actions">
           <div class="toggle-wrap">

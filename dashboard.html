@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#B8B2A0">
 <title>Dashboard — Ledger</title>
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
@@ -39,6 +40,17 @@
       <h1 style="font-size:24px;">Dashboard</h1>
     </header>
 
+    <!-- Month Navigation Bar -->
+    <div class="month-selector-bar">
+      <button type="button" class="month-nav-btn" id="btnPrevMonth" title="View previous month">‹ Prev Month</button>
+      <div class="month-display-wrap">
+        <span class="month-display-label" id="monthDisplayLabel">September 2026</span>
+        <span class="month-current-pill" id="monthCurrentPill">Current</span>
+        <button type="button" class="btn-reset-current-month" id="btnResetCurrentMonth" style="display:none;" title="Jump back to current month">● Jump to Current</button>
+      </div>
+      <button type="button" class="month-nav-btn" id="btnNextMonth" title="View next month" disabled>Next Month ›</button>
+    </div>
+
     <div class="stat-grid dash-stat-grid" style="margin-bottom:20px;">
       <div class="stat-card wide">
         <div class="label">This Month Total</div>
@@ -46,7 +58,7 @@
         <div id="monthTotalSub" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
       <div class="stat-card">
-        <div class="label">Last Month MTD</div>
+        <div class="label" id="lblLastMonthMtd">Last Month MTD</div>
         <div class="value" id="lastMonthMtd" style="font-size:18px;">—</div>
         <div id="lastMonthMtdRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
@@ -55,15 +67,34 @@
         <div class="value" id="creditCycleTotal" style="font-size:18px;">—</div>
         <div id="creditCycleRange" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">—</div>
       </div>
-      <div class="stat-card wide" style="background:rgba(31,92,79,0.05);border:1px dashed var(--stamp);cursor:pointer;" onclick="location.href='budgets.html'">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div class="label" style="color:var(--stamp);font-weight:700;">BUDGETS & SAVINGS</div>
-            <div class="value" id="dashBudgetSavings" style="font-size:18px;color:var(--stamp);">—</div>
+      <!-- Single Callout: Budgets & Savings (Current Saving / Balance along with Proposed & Debit-Only) -->
+      <div class="stat-card wide savings-callout" onclick="location.href='budgets.html'" title="View Budgets & Savings">
+        <div class="savings-callout-header">
+          <div class="savings-callout-title">
+            <span class="savings-callout-badge"></span>
+            <span>BUDGETS & SAVINGS</span>
           </div>
-          <div style="font-size:11px;color:var(--stamp);letter-spacing:1px;font-weight:700;">VIEW &rarr;</div>
+          <div class="savings-callout-link">
+            <span>VIEW BUDGETS</span> &rarr;
+          </div>
         </div>
-        <div id="dashBudgetSub" style="font-size:9.5px;color:var(--ink-faint);margin-top:2px;">Compare proposed budgets & forecast savings</div>
+        <div class="savings-callout-body">
+          <div class="savings-callout-col">
+            <div class="label">CURRENT SAVING (NET)</div>
+            <div class="value" id="dashCurrentSavings" style="color:var(--stamp);">—</div>
+            <div id="dashCurrentSavingsSub" class="sub">Loading balance…</div>
+          </div>
+          <div class="savings-callout-col">
+            <div class="label">DEBIT ONLY (BANK LEFT)</div>
+            <div class="value" id="dashDebitOnlySavings" style="color:var(--stamp);">—</div>
+            <div id="dashDebitOnlySub" class="sub">Loading bank cash…</div>
+          </div>
+          <div class="savings-callout-col proposed-col">
+            <div class="label">PROPOSED SAVINGS</div>
+            <div class="value" id="dashProposedSavings" style="color:var(--stamp);">—</div>
+            <div id="dashProposedSavingsSub" class="sub">Loading savings…</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -78,15 +109,76 @@
     <div id="catBars" class="cat-bars-grid">
       <div class="empty-state">Loading…</div>
     </div>
+
+    <!-- Upcoming Standing Obligations (Next 7-14 Days) -->
+    <div class="upcoming-section" id="upcomingSection" style="display:none;">
+      <div class="upcoming-header-row">
+        <div>
+          <div class="eyebrow">CASH FLOW FORECAST</div>
+          <h2 style="font-size:18px;margin:0;">Upcoming Obligations (Next 14 Days)</h2>
+        </div>
+        <div id="upcomingTotalTag" style="font-size:11px;font-weight:700;color:var(--stamp);border:1px solid var(--paper-line);padding:3px 8px;border-radius:3px;background:var(--paper-light);">
+          ₹0.00 Due
+        </div>
+      </div>
+      <div class="upcoming-grid" id="upcomingGrid"></div>
+    </div>
   </div>
 </main>
 
 <script src="config.js"></script>
 <script>
+  let viewDate = new Date();
+  const realToday = new Date();
+  let proposedBudgetMap = {};
+
+  function formatMonthParam(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+
+  function isViewingCurrentMonth() {
+    return viewDate.getFullYear() === realToday.getFullYear() && viewDate.getMonth() === realToday.getMonth();
+  }
+
+  // Month Navigator Elements
+  const btnPrevMonthEl = document.getElementById('btnPrevMonth');
+  const btnNextMonthEl = document.getElementById('btnNextMonth');
+  const monthDisplayLabelEl = document.getElementById('monthDisplayLabel');
+  const monthCurrentPillEl = document.getElementById('monthCurrentPill');
+  const btnResetCurrentMonthEl = document.getElementById('btnResetCurrentMonth');
+
+  btnPrevMonthEl.addEventListener('click', () => {
+    viewDate.setMonth(viewDate.getMonth() - 1);
+    loadDashboard();
+  });
+
+  btnNextMonthEl.addEventListener('click', () => {
+    if (!isViewingCurrentMonth()) {
+      viewDate.setMonth(viewDate.getMonth() + 1);
+      loadDashboard();
+    }
+  });
+
+  btnResetCurrentMonthEl.addEventListener('click', () => {
+    viewDate = new Date();
+    loadDashboard();
+  });
+
+  function updateMonthNavControls(data) {
+    const isCurrent = isViewingCurrentMonth();
+    btnNextMonthEl.disabled = isCurrent;
+    monthCurrentPillEl.style.display = isCurrent ? 'inline-block' : 'none';
+    btnResetCurrentMonthEl.style.display = isCurrent ? 'none' : 'inline-block';
+    monthDisplayLabelEl.textContent = data.month;
+    document.getElementById('lblLastMonthMtd').textContent = isCurrent ? 'Last Month MTD' : 'Prior Month Full';
+  }
+
   function renderBars(categories) {
     const barsEl = document.getElementById('catBars');
     if (categories.length === 0) {
-      barsEl.innerHTML = '<div class="empty-state">No expenses recorded this month yet</div>';
+      barsEl.innerHTML = '<div class="empty-state">No expenses recorded for this month</div>';
       return;
     }
 
@@ -97,11 +189,25 @@
       const debitPct = max > 0 ? (c.debit_total / max) * 100 : 0;
       const creditPct = max > 0 ? (c.credit_total / max) * 100 : 0;
 
+      // Budget health comparison for variable categories
+      let budgetHealthHtml = '';
+      const budget = proposedBudgetMap[c.category];
+      if (budget && budget > 0) {
+        const pctUsed = Math.round((c.total / budget) * 100);
+        if (pctUsed > 100) {
+          budgetHealthHtml = `<span class="budget-health-tag budget-health-over">⚠️ ${pctUsed}% · Over ₹${formatRupees(budget)}</span>`;
+        } else if (pctUsed >= 80) {
+          budgetHealthHtml = `<span class="budget-health-tag budget-health-warn">⚠️ ${pctUsed}% of ₹${formatRupees(budget)}</span>`;
+        } else {
+          budgetHealthHtml = `<span class="budget-health-tag budget-health-safe">● ${pctUsed}% of ₹${formatRupees(budget)}</span>`;
+        }
+      }
+
       const row = document.createElement('div');
       row.className = 'bar-row';
       row.innerHTML = `
         <div class="bar-label">
-          <span>${c.category} <span style="color:var(--ink-faint);font-size:10px;">(${c.type})</span></span>
+          <span>${c.category} <span style="color:var(--ink-faint);font-size:10px;">(${c.type})</span> ${budgetHealthHtml}</span>
           <span class="amt">${formatRupees(c.total)}</span>
         </div>
         <div class="bar-track">
@@ -117,11 +223,57 @@
     });
   }
 
+  async function loadUpcomingObligations() {
+    try {
+      const data = await apiFetch('/standing-instructions/upcoming?days_ahead=14');
+      const sectionEl = document.getElementById('upcomingSection');
+      const gridEl = document.getElementById('upcomingGrid');
+      const totalTagEl = document.getElementById('upcomingTotalTag');
+
+      if (!data || !data.upcoming || data.upcoming.length === 0) {
+        sectionEl.style.display = 'none';
+        return;
+      }
+
+      sectionEl.style.display = 'block';
+      totalTagEl.textContent = `Total: ${formatRupees(data.total_due)} (Debits: ${formatRupees(data.debit_due)})`;
+      gridEl.innerHTML = '';
+
+      data.upcoming.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'upcoming-card';
+
+        let daysTagClass = item.days_away <= 3 ? 'upcoming-due-soon' : 'upcoming-due-later';
+        let daysText = item.days_away === 0 ? 'Due Today' : (item.days_away === 1 ? 'Tomorrow' : `In ${item.days_away} days`);
+
+        card.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong style="font-size:13px;color:var(--ink);">${escapeHtml(item.expense)}</strong>
+            <span class="upcoming-days-tag ${daysTagClass}">${daysText}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;">
+            <span style="font-size:10.5px;color:var(--ink-faint);">${item.category || 'Bill'} · ${item.due_date_formatted}</span>
+            <strong style="font-size:14px;color:${item.expense_type === 'credit' ? 'var(--stamp)' : 'var(--debit)'};">
+              ${formatRupees(item.amount)}
+            </strong>
+          </div>
+        `;
+        gridEl.appendChild(card);
+      });
+    } catch (e) {
+      console.warn('Could not load upcoming obligations:', e);
+    }
+  }
+
   async function loadDashboard() {
     try {
-      const data = await apiFetch('/summary/dashboard');
+      const monthParam = formatMonthParam(viewDate);
+      const data = await apiFetch(`/summary/dashboard?month=${monthParam}`);
+
+      updateMonthNavControls(data);
       document.getElementById('monthLabel').textContent = data.month.toUpperCase();
       document.getElementById('monthTotal').textContent = formatRupees(data.month_total);
+
       const subEl = document.getElementById('monthTotalSub');
       if (subEl) {
         if (data.bank_cash_outflow) {
@@ -130,7 +282,7 @@
           subEl.textContent = 'Real Outflow';
         }
       }
-      
+
       const legDebit = document.getElementById('legDebitSummary');
       if (legDebit && data.bank_cash_outflow) {
         legDebit.textContent = `Bank Debits: ${formatRupees(data.bank_cash_outflow)}`;
@@ -142,30 +294,82 @@
 
       document.getElementById('lastMonthMtd').textContent = formatRupees(data.last_month_mtd_total);
       document.getElementById('lastMonthMtdRange').textContent = data.last_month_mtd_range;
-      
+
       document.getElementById('creditCycleTotal').textContent = formatRupees(data.credit_cycle_total);
       document.getElementById('creditCycleRange').textContent = data.credit_cycle_range;
 
-      renderBars(data.categories);
-
-      // Async fetch budget savings preview
+      // Load proposed budgets for health comparison
       apiFetch('/budgets').then(bData => {
-        const inc = Number(bData.monthly_income || 0);
-        const bSav = bData.savings?.based_on_budget;
-        const dashSavEl = document.getElementById('dashBudgetSavings');
-        const dashSubEl = document.getElementById('dashBudgetSub');
-        if (dashSavEl) {
-          if (inc > 0 && bSav) {
-            dashSavEl.textContent = `${formatRupees(bSav.projected_savings)} / mo (${bSav.savings_rate}%)`;
-            dashSavEl.style.color = bSav.projected_savings >= 0 ? 'var(--stamp)' : 'var(--debit)';
-            dashSubEl.textContent = `Target savings based on proposed budgets & ${formatRupees(inc)} income`;
-          } else {
-            const totVarBudget = bData.totals?.total_proposed_variable_budget || 0;
-            dashSavEl.textContent = `Var Budget: ${formatRupees(totVarBudget)}`;
-            dashSubEl.textContent = 'Set your monthly income in Budgets to forecast savings';
+        proposedBudgetMap = {};
+        const catList = (bData && (bData.categories || bData.budgets)) || [];
+        catList.forEach(b => {
+          if (b && b.category) {
+            proposedBudgetMap[b.category] = Number(b.proposed_budget || 0);
           }
+        });
+        renderBars(data.categories);
+
+        // Savings Callout Update
+        const inc = Number(bData?.monthly_income || 0);
+        const bSav = bData?.savings?.based_on_budget;
+        const actSav = bData?.savings?.based_on_spending;
+        const cashSav = bData?.savings?.based_on_cash_flow;
+        const monthSpent = Number(data.month_total || 0);
+
+        const currSavEl = document.getElementById('dashCurrentSavings');
+        const currSubEl = document.getElementById('dashCurrentSavingsSub');
+        const debitSavEl = document.getElementById('dashDebitOnlySavings');
+        const debitSubEl = document.getElementById('dashDebitOnlySub');
+        const propSavEl = document.getElementById('dashProposedSavings');
+        const propSubEl = document.getElementById('dashProposedSavingsSub');
+
+        if (inc > 0) {
+          const currSavings = inc - monthSpent;
+          const currRate = (currSavings / inc) * 100;
+
+          if (currSavEl) {
+            currSavEl.textContent = formatRupees(currSavings);
+            currSavEl.style.color = currSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+          }
+          if (currSubEl) {
+            currSubEl.textContent = currSavings >= 0
+              ? `${currRate.toFixed(1)}% unspent (${formatRupees(monthSpent)} spent)`
+              : `Deficit of ${formatRupees(Math.abs(currSavings))} (${formatRupees(monthSpent)} spent)`;
+          }
+
+          const bankOutflow = Number(data.bank_cash_outflow || 0);
+          const debitSavings = inc - bankOutflow;
+          const debitRate = (debitSavings / inc) * 100;
+
+          if (debitSavEl) {
+            debitSavEl.textContent = formatRupees(debitSavings);
+            debitSavEl.style.color = debitSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+          }
+          if (debitSubEl) {
+            debitSubEl.textContent = debitSavings >= 0
+              ? `${debitRate.toFixed(1)}% bank cash left (${formatRupees(bankOutflow)} debited)`
+              : `Bank deficit of ${formatRupees(Math.abs(debitSavings))} (${formatRupees(bankOutflow)} debited)`;
+          }
+
+          if (bSav && propSavEl) {
+            const propSavings = Number(bSav.projected_savings ?? 0);
+            const propRate = Number(bSav.savings_rate ?? ((propSavings / inc) * 100));
+            propSavEl.textContent = `${formatRupees(propSavings)} / mo`;
+            propSavEl.style.color = propSavings >= 0 ? 'var(--stamp)' : 'var(--debit)';
+            if (propSubEl) {
+              propSubEl.textContent = `${propRate.toFixed(1)}% target based on proposed budget`;
+            }
+          }
+        } else {
+          if (currSavEl) currSavEl.textContent = '—';
+          if (currSubEl) currSubEl.textContent = 'Set monthly income in Budgets';
+          if (debitSavEl) debitSavEl.textContent = '—';
+          if (debitSubEl) debitSubEl.textContent = 'Set monthly income in Budgets';
         }
-      }).catch(() => {});
+      }).catch(() => {
+        renderBars(data.categories);
+      });
+
     } catch (e) {
       document.getElementById('catBars').innerHTML =
         `<div class="empty-state">Could not load dashboard: ${e.message}</div>`;
@@ -173,6 +377,7 @@
   }
 
   loadDashboard();
+  loadUpcomingObligations();
 </script>
 </body>
 </html>

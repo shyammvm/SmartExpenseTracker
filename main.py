@@ -638,6 +638,42 @@ def parse_expense(payload: ExpenseInput, _=Depends(verify_secret)):
         }
 
 
+@app.get("/expenses/check-duplicate")
+def check_duplicate_expense(
+    amount: float,
+    expense_date: str | None = None,
+    expense: str | None = None,
+    _=Depends(verify_secret),
+):
+    """Checks if an expense with the same amount was logged on the given date (or today)."""
+    check_date = (expense_date or str(get_ist_today())).strip()
+    query = (
+        supabase.table("expenses_flat")
+        .select("id, amount, expense, category, expense_date, created_at, source")
+        .eq("expense_date", check_date)
+        .eq("amount", round(amount, 2))
+        .neq("status", "pending_review")
+        .order("created_at", desc=True)
+        .limit(5)
+    )
+    result = query.execute()
+    existing = result.data or []
+
+    similar = []
+    if expense and expense.strip():
+        exp_clean = expense.strip().lower()
+        for item in existing:
+            item_exp = (item.get("expense") or "").strip().lower()
+            if item_exp and (exp_clean in item_exp or item_exp in exp_clean):
+                similar.append(item)
+
+    return {
+        "has_duplicate": len(existing) > 0,
+        "matches": similar if similar else existing,
+        "count": len(existing),
+    }
+
+
 @app.post("/add-expense")
 def add_expense(payload: ManualExpenseInput, _=Depends(verify_secret)):
     """Direct insert for structured manual entry from the web form -- no AI
@@ -726,17 +762,46 @@ def delete_expense(expense_id: str, _=Depends(verify_secret)):
 
 
 @app.get("/expenses/recent")
-def get_recent_expenses(limit: int = 30, _=Depends(verify_secret)):
-    """Fetch the most recent N (default 30) expenses for editing."""
-    result = (
-        supabase.table("expenses_flat")
-        .select("*")
-        .order("expense_date", desc=True)
+def get_recent_expenses(
+    limit: int = 30,
+    page: int = 1,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    q: str | None = None,
+    _=Depends(verify_secret),
+):
+    """Fetch paginated expenses with optional date range and search filtering."""
+    limit = min(max(1, limit), 5000)
+    page = max(1, page)
+    offset = (page - 1) * limit
+
+    query = supabase.table("expenses_flat").select("*", count="exact")
+
+    if start_date and start_date.strip():
+        query = query.gte("expense_date", start_date.strip())
+    if end_date and end_date.strip():
+        query = query.lte("expense_date", end_date.strip())
+    if q and q.strip():
+        clean_q = re.sub(r"[,%()]", " ", q).strip()
+        if clean_q:
+            query = query.or_(f"expense.ilike.%{clean_q}%,category.ilike.%{clean_q}%")
+
+    query = (
+        query.order("expense_date", desc=True)
         .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
+        .range(offset, offset + limit - 1)
     )
-    return {"expenses": result.data}
+    result = query.execute()
+    count = result.count if result.count is not None else len(result.data or [])
+    total_pages = (count + limit - 1) // limit if count > 0 else 1
+
+    return {
+        "expenses": result.data or [],
+        "total": count,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+    }
 
 
 @app.patch("/expenses/{expense_id}")
@@ -802,6 +867,77 @@ def update_category(name: str, payload: CategoryUpdateInput, _=Depends(verify_se
     if not result.data:
         raise HTTPException(status_code=404, detail=f"Category not found: {name}")
     return {"status": "ok", "category": result.data[0]}
+
+
+@app.get("/standing-instructions/upcoming")
+def get_upcoming_standing_instructions(days_ahead: int = 14, _=Depends(verify_secret)):
+    """Return active standing instructions due in the next N days (default 14)."""
+    today = get_ist_today()
+    res = supabase.table("standing_instructions").select("*").eq("is_active", True).execute()
+    instructions = res.data or []
+
+    upcoming = []
+    total_due = 0.0
+    debit_due = 0.0
+    credit_due = 0.0
+
+    for inst in instructions:
+        dom = inst["day_of_month"]
+        last_day_this_month = calendar.monthrange(today.year, today.month)[1]
+        target_day_this_month = min(dom, last_day_this_month)
+
+        due_date = date(today.year, today.month, target_day_this_month)
+        if due_date < today:
+            if today.month == 12:
+                next_y = today.year + 1
+                next_m = 1
+            else:
+                next_y = today.year
+                next_m = today.month + 1
+            last_day_next_month = calendar.monthrange(next_y, next_m)[1]
+            target_day_next_month = min(dom, last_day_next_month)
+            due_date = date(next_y, next_m, target_day_next_month)
+
+        if inst.get("end_date"):
+            try:
+                end_d = date.fromisoformat(inst["end_date"])
+                if due_date > end_d:
+                    continue
+            except Exception:
+                pass
+
+        days_away = (due_date - today).days
+        if 0 <= days_away <= days_ahead:
+            amt = float(inst.get("amount") or 0.0)
+            etype = inst.get("expense_type", "debit")
+            total_due += amt
+            if etype == "debit":
+                debit_due += amt
+            else:
+                credit_due += amt
+
+            upcoming.append({
+                "id": inst["id"],
+                "expense": inst["expense"],
+                "amount": amt,
+                "category": inst.get("category"),
+                "expense_type": etype,
+                "day_of_month": dom,
+                "due_date": str(due_date),
+                "due_date_formatted": due_date.strftime("%b %d"),
+                "days_away": days_away,
+            })
+
+    upcoming.sort(key=lambda x: (x["days_away"], -x["amount"]))
+
+    return {
+        "upcoming": upcoming,
+        "count": len(upcoming),
+        "total_due": round(total_due, 2),
+        "debit_due": round(debit_due, 2),
+        "credit_due": round(credit_due, 2),
+        "days_window": days_ahead,
+    }
 
 
 @app.get("/standing-instructions")
@@ -1027,21 +1163,30 @@ def summary_entry_page(_=Depends(verify_secret)):
 
 
 @app.get("/summary/dashboard")
-def summary_dashboard(_=Depends(verify_secret)):
+def summary_dashboard(month: str | None = None, _=Depends(verify_secret)):
     """Category-wise breakdown with credit/debit split, last month MTD comparison,
-    and current credit card billing cycle total."""
+    and current credit card billing cycle total. Optionally filter by month (YYYY-MM)."""
     today = get_ist_today()
-    month_start = today.replace(day=1)
+    if month and re.match(r"^\d{4}-\d{2}$", month.strip()):
+        y, m = map(int, month.strip().split("-"))
+        month_start = date(y, m, 1)
+        max_days = calendar.monthrange(y, m)[1]
+        is_current_month = (y == today.year and m == today.month)
+        month_end = date(y, m, min(today.day, max_days)) if is_current_month else date(y, m, max_days)
+    else:
+        month_start = today.replace(day=1)
+        is_current_month = True
+        month_end = today
 
-    # 1. Last month till date calculation
+    # 1. Last month till date calculation (relative to selected month)
     last_month_end_prev = month_start - timedelta(days=1)
     last_month_start = last_month_end_prev.replace(day=1)
     max_days_last_month = calendar.monthrange(last_month_start.year, last_month_start.month)[1]
-    target_day = min(today.day, max_days_last_month)
+    target_day = min(month_end.day, max_days_last_month)
     last_month_till_date_end = date(last_month_start.year, last_month_start.month, target_day)
 
     # 2. Credit card billing cycle calculation (16th to 15th)
-    if today.day <= 15:
+    if month_end.day <= 15:
         cycle_start = (month_start - timedelta(days=1)).replace(day=16)
         cycle_end = month_start.replace(day=15)
     else:
@@ -1057,7 +1202,7 @@ def summary_dashboard(_=Depends(verify_secret)):
         supabase.table("expenses_flat")
         .select("amount, category, category_type, expense_type")
         .gte("expense_date", str(month_start))
-        .lte("expense_date", str(today))
+        .lte("expense_date", str(month_end))
         .neq("status", "pending_review")
         .execute()
     )
@@ -1131,6 +1276,10 @@ def summary_dashboard(_=Depends(verify_secret)):
 
     return {
         "month": month_start.strftime("%B %Y"),
+        "selected_month": month_start.strftime("%Y-%m"),
+        "is_current_month": is_current_month,
+        "month_start": str(month_start),
+        "month_end": str(month_end),
         "month_total": month_total,
         "bank_cash_outflow": bank_cash_outflow,
         "credit_card_bill_payment": round(cc_bill_payment, 2),
@@ -1367,6 +1516,7 @@ def get_budgets(_=Depends(verify_secret)):
     return {
         "monthly_income": monthly_income,
         "categories": categories_data,
+        "budgets": categories_data,
         "totals": {
             "total_proposed_variable_budget": total_proposed_var_budget,
             "total_variable_avg_spending": total_var_avg_spend,

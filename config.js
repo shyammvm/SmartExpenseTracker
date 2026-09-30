@@ -166,13 +166,87 @@ async function updateConflictsBadge() {
   }
 }
 
+// Theme management (Dark Mode / Warm Paper)
+function applyTheme(theme) {
+  if (theme === 'dark') {
+    document.documentElement.classList.add('theme-dark');
+  } else {
+    document.documentElement.classList.remove('theme-dark');
+  }
+}
+
+// Immediate theme application to prevent white flicker
+const currentSavedTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app_theme')) || 'light';
+applyTheme(currentSavedTheme);
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('theme-dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('app_theme', next);
+  applyTheme(next);
+  updateThemeButton();
+}
+
+function updateThemeButton() {
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) {
+    const isDark = document.documentElement.classList.contains('theme-dark');
+    btn.innerHTML = isDark ? '☀️' : '🌙';
+    btn.title = isDark ? 'Switch to Warm Paper theme' : 'Switch to Dark Mode';
+  }
+}
+
+function injectThemeButton() {
+  const header = document.querySelector('.app-header');
+  if (header && !document.getElementById('themeToggleBtn')) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'themeToggleBtn';
+    btn.className = 'theme-toggle-btn';
+    btn.onclick = toggleTheme;
+    header.appendChild(btn);
+    updateThemeButton();
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, function(m) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+  });
+}
+
+// Service Worker handling: unregister & purge cache on localhost, enable in production
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocal) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (let reg of registrations) reg.unregister();
+    });
+    if (typeof caches !== 'undefined') {
+      caches.keys().then(keys => {
+        for (let key of keys) caches.delete(key);
+      });
+    }
+  } else if (window.location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => {
+        console.warn('SW registration skipped:', err);
+      });
+    });
+  }
+}
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
+    injectThemeButton();
     if (!getSecret()) showPasscodeModal();
     else updateConflictsBadge();
   });
 } else {
+  injectThemeButton();
   if (!getSecret()) showPasscodeModal();
   else updateConflictsBadge();
 }
+
 

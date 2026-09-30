@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#B8B2A0">
 <title>History — Ledger</title>
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
@@ -35,48 +36,193 @@
 <main class="page-container">
   <div class="receipt">
     <header>
-      <div class="eyebrow">LAST 30 TRANSACTIONS</div>
-      <h1 style="font-size:24px;">History</h1>
+      <div class="eyebrow" id="historyEyebrow">LAST 30 TRANSACTIONS · ALL TIME</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:4px;">
+        <h1 style="font-size:24px;margin:0;">History</h1>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button type="button" id="btnExportCsv" class="btn-export-csv" title="Export currently filtered expenses to CSV">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span id="btnExportCsvText">Export CSV</span>
+          </button>
+          <button type="button" id="btnPrintPage" class="btn-print-page" title="Select a date filter to print (All Dates printing is disabled)" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            <span id="btnPrintText">Print</span>
+          </button>
+        </div>
+      </div>
     </header>
 
-    <div class="search-bar-wrap">
-      <input type="text" id="historySearch" class="search-input" placeholder="🔍 Search expenses by payee or category...">
+    <!-- History Filter Controls -->
+    <div class="history-controls">
+      <!-- Quick Date Filter Presets -->
+      <div class="filter-preset-bar" id="presetBar">
+        <button type="button" class="preset-pill active" data-preset="all" id="presetAll">All Dates</button>
+        <button type="button" class="preset-pill" data-preset="this_month" id="presetThisMonth">This Month</button>
+        <button type="button" class="preset-pill" data-preset="last_month" id="presetLastMonth">Last Month</button>
+        <button type="button" class="preset-pill" data-preset="last_30" id="presetLast30">Last 30 Days</button>
+        <button type="button" class="preset-pill" data-preset="custom" id="presetCustom">Custom Range ▾</button>
+      </div>
+
+      <!-- Custom Date Range Picker Box -->
+      <div class="custom-date-box" id="customDateBox" style="display:none;">
+        <div class="custom-date-row">
+          <div class="date-field">
+            <label for="startDate">From Date</label>
+            <input type="date" id="startDate" class="date-input">
+          </div>
+          <div class="date-field">
+            <label for="endDate">To Date</label>
+            <input type="date" id="endDate" class="date-input">
+          </div>
+          <div class="date-actions">
+            <button type="button" class="btn-filter-apply" id="btnApplyDateFilter">Apply Filter</button>
+            <button type="button" class="btn-filter-reset" id="btnResetDateFilter" title="Reset to All Dates">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Input -->
+      <div class="search-bar-wrap" style="position:relative;margin-bottom:0;">
+        <input type="text" id="historySearch" class="search-input" placeholder="🔍 Search expenses by payee or category...">
+        <button type="button" id="btnClearSearch" class="search-clear-btn" style="display:none;" title="Clear search">✕</button>
+      </div>
+
+      <!-- Summary & Top Navigation -->
+      <div class="history-summary-bar">
+        <div class="history-count-badge" id="historySummaryText">Loading expenses…</div>
+        <div class="mini-pagination" id="topPagination" style="display:none;">
+          <button type="button" class="mini-page-btn" id="topPrevBtn" title="Previous page">‹</button>
+          <span class="mini-page-indicator" id="topPageIndicator">1 / 1</span>
+          <button type="button" class="mini-page-btn" id="topNextBtn" title="Next page">›</button>
+        </div>
+      </div>
     </div>
 
     <div class="status" id="status"></div>
 
+    <!-- Expenses List -->
     <div id="historyList">
       <div class="empty-state">Loading recent expenses…</div>
+    </div>
+
+    <!-- Bottom Pagination Controls (1, 2, 3...) -->
+    <div class="pagination-container" id="paginationContainer" style="display:none;">
+      <div class="pagination-wrapper" id="paginationWrapper"></div>
+      <div class="pagination-info" id="paginationInfo">Showing 1–30 of 30 expenses</div>
     </div>
   </div>
 </main>
 
+<!-- Dedicated Print Section (Only visible during browser print) -->
+<div id="printSection"></div>
+
 <script src="config.js"></script>
 <script>
+  // State variables
+  const PAGE_SIZE = 30;
+  let currentPage = 1;
+  let totalExpenses = 0;
+  let totalPages = 1;
   let recentExpenses = [];
   let availableCategories = [];
-  let searchFilter = '';
 
+  let activePreset = 'all'; // 'all' | 'this_month' | 'last_month' | 'last_30' | 'custom'
+  let startDate = '';
+  let endDate = '';
+  let searchQuery = '';
+  let searchDebounceTimer = null;
+
+  // DOM Elements
   const statusEl = document.getElementById('status');
   const historyListEl = document.getElementById('historyList');
   const searchInputEl = document.getElementById('historySearch');
+  const btnClearSearchEl = document.getElementById('btnClearSearch');
+  const historyEyebrowEl = document.getElementById('historyEyebrow');
+  const historySummaryTextEl = document.getElementById('historySummaryText');
 
-  searchInputEl.addEventListener('input', (e) => {
-    searchFilter = e.target.value.toLowerCase().trim();
-    renderHistory();
-  });
+  const btnPrintPageEl = document.getElementById('btnPrintPage');
+  const btnPrintTextEl = document.getElementById('btnPrintText');
+  const printSectionEl = document.getElementById('printSection');
+
+  const presetBarEl = document.getElementById('presetBar');
+  const customDateBoxEl = document.getElementById('customDateBox');
+  const startDateInputEl = document.getElementById('startDate');
+  const endDateInputEl = document.getElementById('endDate');
+  const btnApplyDateFilterEl = document.getElementById('btnApplyDateFilter');
+  const btnResetDateFilterEl = document.getElementById('btnResetDateFilter');
+
+  const topPaginationEl = document.getElementById('topPagination');
+  const topPrevBtnEl = document.getElementById('topPrevBtn');
+  const topNextBtnEl = document.getElementById('topNextBtn');
+  const topPageIndicatorEl = document.getElementById('topPageIndicator');
+
+  const paginationContainerEl = document.getElementById('paginationContainer');
+  const paginationWrapperEl = document.getElementById('paginationWrapper');
+  const paginationInfoEl = document.getElementById('paginationInfo');
+
+  // Format Date to YYYY-MM-DD
+  function formatYMD(d) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // Format Date for Friendly Display (e.g. 01 Sep 2026)
+  function formatDisplayDate(ymdStr) {
+    if (!ymdStr) return '';
+    const parts = ymdStr.split('-');
+    if (parts.length !== 3) return ymdStr;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const mIdx = parseInt(parts[1], 10) - 1;
+    return `${parts[2]} ${months[mIdx] || parts[1]} ${parts[0]}`;
+  }
+
+  // Calculate preset date ranges
+  function calculatePresetDates(preset) {
+    const now = new Date();
+    if (preset === 'this_month') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      return { start: formatYMD(start), end: formatYMD(end) };
+    } else if (preset === 'last_month') {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { start: formatYMD(start), end: formatYMD(end) };
+    } else if (preset === 'last_30') {
+      const end = now;
+      const start = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+      return { start: formatYMD(start), end: formatYMD(end) };
+    }
+    return { start: '', end: '' };
+  }
 
   function showStatus(msg, isError = false) {
     statusEl.textContent = msg;
     statusEl.className = isError ? 'status error' : 'status';
+    if (!isError && msg) {
+      setTimeout(() => {
+        if (statusEl.textContent === msg) {
+          statusEl.textContent = '';
+        }
+      }, 4000);
+    }
   }
 
   async function loadCategories() {
     try {
       const data = await apiFetch('/categories');
-      availableCategories = data.categories.filter(c => c.is_active);
+      availableCategories = (data.categories || []).filter(c => c.is_active);
     } catch (e) {
-      // fallback
+      availableCategories = [];
     }
   }
 
@@ -89,22 +235,316 @@
     return html;
   }
 
-  function renderHistory() {
-    let items = recentExpenses;
-    if (searchFilter) {
-      items = recentExpenses.filter(item => {
-        const text = `${item.expense || ''} ${item.category || ''} ${item.expense_type || ''} ${item.expense_date || ''}`.toLowerCase();
-        return text.includes(searchFilter);
-      });
+  // Check if a filter is active
+  function isAnyFilterActive() {
+    return Boolean((activePreset !== 'all') || startDate || endDate || searchQuery);
+  }
+
+  // Update Print button enabled/disabled state
+  function updatePrintButtonState() {
+    const hasFilter = isAnyFilterActive();
+    if (!hasFilter) {
+      btnPrintPageEl.disabled = true;
+      btnPrintPageEl.title = 'Select a date filter to print (All Dates printing is disabled)';
+    } else {
+      btnPrintPageEl.disabled = false;
+      btnPrintPageEl.title = `Print all matching expenses for ${getActiveFilterDescription()}`;
+    }
+  }
+
+  // Sync state to URL Query Params
+  function updateUrlParams() {
+    const params = new URLSearchParams();
+    if (currentPage > 1) params.set('page', currentPage);
+    if (activePreset && activePreset !== 'all') params.set('preset', activePreset);
+    if (startDate) params.set('from', startDate);
+    if (endDate) params.set('to', endDate);
+    if (searchQuery) params.set('q', searchQuery);
+
+    const queryString = params.toString();
+    const newUrl = window.location.pathname + (queryString ? `?${queryString}` : '');
+    window.history.replaceState({}, '', newUrl);
+  }
+
+  // Read state from URL Query Params
+  function parseUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const p = parseInt(params.get('page'), 10);
+    if (!isNaN(p) && p >= 1) currentPage = p;
+
+    const q = params.get('q');
+    if (q) {
+      searchQuery = q.trim();
+      searchInputEl.value = searchQuery;
+      btnClearSearchEl.style.display = 'block';
     }
 
-    if (items.length === 0) {
-      historyListEl.innerHTML = `<div class="empty-state">${searchFilter ? 'No matching expenses found' : 'No recent expenses found'}</div>`;
+    const preset = params.get('preset');
+    const fromParam = params.get('from');
+    const toParam = params.get('to');
+
+    if (preset && ['this_month', 'last_month', 'last_30', 'custom'].includes(preset)) {
+      activePreset = preset;
+      if (preset === 'custom') {
+        startDate = fromParam || '';
+        endDate = toParam || '';
+        startDateInputEl.value = startDate;
+        endDateInputEl.value = endDate;
+        customDateBoxEl.style.display = 'block';
+      } else {
+        const dates = calculatePresetDates(preset);
+        startDate = dates.start;
+        endDate = dates.end;
+      }
+    } else if (fromParam || toParam) {
+      activePreset = 'custom';
+      startDate = fromParam || '';
+      endDate = toParam || '';
+      startDateInputEl.value = startDate;
+      endDateInputEl.value = endDate;
+      customDateBoxEl.style.display = 'block';
+    } else {
+      activePreset = 'all';
+      startDate = '';
+      endDate = '';
+    }
+
+    updatePresetPillsUI();
+  }
+
+  function updatePresetPillsUI() {
+    document.querySelectorAll('.preset-pill').forEach(pill => {
+      const p = pill.dataset.preset;
+      if (p === activePreset) {
+        pill.classList.add('active');
+      } else {
+        pill.classList.remove('active');
+      }
+    });
+
+    const customPill = document.getElementById('presetCustom');
+    if (customPill) {
+      const isOpen = customDateBoxEl.style.display === 'block';
+      customPill.textContent = isOpen ? 'Custom Range ▴' : 'Custom Range ▾';
+    }
+
+    updatePrintButtonState();
+  }
+
+  // Main data loading function
+  async function loadHistory(page = currentPage, smoothScroll = false) {
+    currentPage = page;
+    historyListEl.innerHTML = `<div class="empty-state">Loading expenses…</div>`;
+
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', PAGE_SIZE);
+      params.set('page', currentPage);
+      if (startDate) params.set('start_date', startDate);
+      if (endDate) params.set('end_date', endDate);
+      if (searchQuery) params.set('q', searchQuery);
+
+      const data = await apiFetch(`/expenses/recent?${params.toString()}`);
+      recentExpenses = data.expenses || [];
+      totalExpenses = typeof data.total === 'number' ? data.total : recentExpenses.length;
+      totalPages = typeof data.total_pages === 'number' ? data.total_pages : Math.max(1, Math.ceil(totalExpenses / PAGE_SIZE));
+
+      if (totalPages > 0 && currentPage > totalPages) {
+        currentPage = totalPages;
+        return loadHistory(currentPage, smoothScroll);
+      }
+
+      updateUrlParams();
+      renderHistory();
+      renderSummaryAndPagination();
+
+      if (smoothScroll) {
+        historyListEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } catch (e) {
+      historyListEl.innerHTML = `<div class="empty-state">Could not load expenses: ${escapeHtml(e.message)}</div>`;
+      historySummaryTextEl.textContent = 'Error loading expenses';
+      topPaginationEl.style.display = 'none';
+      paginationContainerEl.style.display = 'none';
+      updatePrintButtonState();
+    }
+  }
+
+  function updateEyebrow() {
+    if (activePreset === 'all' && !searchQuery) {
+      historyEyebrowEl.textContent = totalPages > 1 ? `PAGE ${currentPage} OF ${totalPages} · ALL TIME` : 'LAST 30 TRANSACTIONS · ALL TIME';
+    } else if (activePreset === 'this_month') {
+      historyEyebrowEl.textContent = `THIS MONTH · PAGE ${currentPage} OF ${totalPages}`;
+    } else if (activePreset === 'last_month') {
+      historyEyebrowEl.textContent = `LAST MONTH · PAGE ${currentPage} OF ${totalPages}`;
+    } else if (activePreset === 'last_30') {
+      historyEyebrowEl.textContent = `LAST 30 DAYS · PAGE ${currentPage} OF ${totalPages}`;
+    } else if (activePreset === 'custom' || startDate || endDate) {
+      historyEyebrowEl.textContent = `DATE FILTERED · PAGE ${currentPage} OF ${totalPages}`;
+    } else if (searchQuery) {
+      historyEyebrowEl.textContent = `SEARCH RESULTS · PAGE ${currentPage} OF ${totalPages}`;
+    } else {
+      historyEyebrowEl.textContent = `TRANSACTIONS · PAGE ${currentPage}`;
+    }
+  }
+
+  function getActiveFilterDescription() {
+    if (activePreset === 'this_month') return 'This Month';
+    if (activePreset === 'last_month') return 'Last Month';
+    if (activePreset === 'last_30') return 'Last 30 Days';
+    if (startDate && endDate) return `${formatDisplayDate(startDate)} to ${formatDisplayDate(endDate)}`;
+    if (startDate) return `From ${formatDisplayDate(startDate)}`;
+    if (endDate) return `Up to ${formatDisplayDate(endDate)}`;
+    if (searchQuery) return `Search: "${searchQuery}"`;
+    return 'All Dates (All Time)';
+  }
+
+  function renderSummaryAndPagination() {
+    updateEyebrow();
+    updatePrintButtonState();
+
+    // Summary Text
+    const startIdx = totalExpenses === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+    const endIdx = Math.min(currentPage * PAGE_SIZE, totalExpenses);
+
+    let summaryHtml = `Showing ${startIdx}–${endIdx} of ${totalExpenses.toLocaleString()} expenses`;
+
+    if (activePreset === 'this_month') {
+      summaryHtml += ` <span class="active-filter-tag">This Month <span class="tag-close" data-clear="dates" title="Clear filter">✕</span></span>`;
+    } else if (activePreset === 'last_month') {
+      summaryHtml += ` <span class="active-filter-tag">Last Month <span class="tag-close" data-clear="dates" title="Clear filter">✕</span></span>`;
+    } else if (activePreset === 'last_30') {
+      summaryHtml += ` <span class="active-filter-tag">Last 30 Days <span class="tag-close" data-clear="dates" title="Clear filter">✕</span></span>`;
+    } else if (startDate || endDate) {
+      const rangeText = `${formatDisplayDate(startDate) || 'Beginning'} – ${formatDisplayDate(endDate) || 'Today'}`;
+      summaryHtml += ` <span class="active-filter-tag">📅 ${rangeText} <span class="tag-close" data-clear="dates" title="Clear filter">✕</span></span>`;
+    }
+
+    if (searchQuery) {
+      summaryHtml += ` <span class="active-filter-tag">🔍 "${escapeHtml(searchQuery)}" <span class="tag-close" data-clear="search" title="Clear search">✕</span></span>`;
+    }
+
+    historySummaryTextEl.innerHTML = summaryHtml;
+
+    // Attach listeners for filter tag close buttons
+    historySummaryTextEl.querySelectorAll('.tag-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clearType = btn.dataset.clear;
+        if (clearType === 'dates') {
+          resetToAllDates();
+        } else if (clearType === 'search') {
+          clearSearch();
+        }
+      });
+    });
+
+    // Top Mini Pagination
+    if (totalPages > 1) {
+      topPaginationEl.style.display = 'inline-flex';
+      topPrevBtnEl.disabled = currentPage <= 1;
+      topNextBtnEl.disabled = currentPage >= totalPages;
+      topPageIndicatorEl.textContent = `${currentPage} / ${totalPages}`;
+    } else {
+      topPaginationEl.style.display = 'none';
+    }
+
+    // Bottom Rich Pagination (1, 2, 3...)
+    if (totalPages > 1) {
+      paginationContainerEl.style.display = 'flex';
+      paginationInfoEl.textContent = `Page ${currentPage} of ${totalPages} · Max 30 expenses per page`;
+
+      let html = '';
+
+      // Prev Button
+      html += `<button type="button" class="page-btn page-btn-nav" id="pageBtnPrev" ${currentPage <= 1 ? 'disabled' : ''}>« Prev</button>`;
+
+      // Numeric buttons: 1, 2, 3...
+      const pagesToRender = getPaginationNumbers(currentPage, totalPages);
+      pagesToRender.forEach(p => {
+        if (p === '...') {
+          html += `<span class="page-ellipsis">…</span>`;
+        } else {
+          const isActive = p === currentPage;
+          html += `<button type="button" class="page-btn ${isActive ? 'active' : ''}" data-page="${p}">${p}</button>`;
+        }
+      });
+
+      // Next Button
+      html += `<button type="button" class="page-btn page-btn-nav" id="pageBtnNext" ${currentPage >= totalPages ? 'disabled' : ''}>Next »</button>`;
+
+      paginationWrapperEl.innerHTML = html;
+
+      // Attach event listeners to pagination buttons
+      paginationWrapperEl.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetPage = parseInt(btn.dataset.page, 10);
+          if (targetPage && targetPage !== currentPage) {
+            loadHistory(targetPage, true);
+          }
+        });
+      });
+
+      const btnPrev = document.getElementById('pageBtnPrev');
+      if (btnPrev) {
+        btnPrev.addEventListener('click', () => {
+          if (currentPage > 1) loadHistory(currentPage - 1, true);
+        });
+      }
+
+      const btnNext = document.getElementById('pageBtnNext');
+      if (btnNext) {
+        btnNext.addEventListener('click', () => {
+          if (currentPage < totalPages) loadHistory(currentPage + 1, true);
+        });
+      }
+    } else {
+      paginationContainerEl.style.display = 'none';
+    }
+  }
+
+  // Pagination buttons: ensures buttons 1, 2, 3... are clearly selectable
+  function getPaginationNumbers(current, total) {
+    if (total <= 7) {
+      const pages = [];
+      for (let i = 1; i <= total; i++) pages.push(i);
+      return pages;
+    }
+
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, '...', total];
+    }
+
+    if (current >= total - 3) {
+      return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+    }
+
+    return [1, '...', current - 1, current, current + 1, '...', total];
+  }
+
+  function renderHistory() {
+    if (recentExpenses.length === 0) {
+      const hasFilter = isAnyFilterActive();
+      historyListEl.innerHTML = `
+        <div class="empty-state">
+          <div>${hasFilter ? 'No expenses found matching the selected filter.' : 'No expenses recorded yet.'}</div>
+          ${hasFilter ? '<button type="button" class="btn-filter-apply" id="btnEmptyReset" style="margin-top:12px;">Reset to All Dates</button>' : ''}
+        </div>
+      `;
+
+      const emptyResetBtn = document.getElementById('btnEmptyReset');
+      if (emptyResetBtn) {
+        emptyResetBtn.addEventListener('click', () => {
+          clearSearch();
+          resetToAllDates();
+        });
+      }
       return;
     }
 
     historyListEl.innerHTML = '';
-    items.forEach(item => {
+
+    recentExpenses.forEach(item => {
       const el = document.createElement('div');
       el.className = 'history-item';
       el.id = `item-${item.id}`;
@@ -201,7 +641,7 @@
             body: JSON.stringify({ expense, amount, expense_date, category, expense_type })
           });
           showStatus(`Updated expense`);
-          loadHistory();
+          loadHistory(currentPage);
         } catch (e) {
           showStatus(e.message, true);
         }
@@ -215,7 +655,10 @@
         try {
           await apiFetch(`/expenses/${id}`, { method: 'DELETE' });
           showStatus('Deleted expense');
-          loadHistory();
+          if (recentExpenses.length === 1 && currentPage > 1) {
+            currentPage -= 1;
+          }
+          loadHistory(currentPage);
         } catch (e) {
           showStatus(e.message, true);
         }
@@ -223,14 +666,356 @@
     });
   }
 
-  async function loadHistory() {
-    try {
-      const data = await apiFetch('/expenses/recent?limit=30');
-      recentExpenses = data.expenses || [];
-      renderHistory();
-    } catch (e) {
-      historyListEl.innerHTML = `<div class="empty-state">Could not load expenses: ${e.message}</div>`;
+  function resetToAllDates() {
+    activePreset = 'all';
+    startDate = '';
+    endDate = '';
+    startDateInputEl.value = '';
+    endDateInputEl.value = '';
+    customDateBoxEl.style.display = 'none';
+    updatePresetPillsUI();
+    currentPage = 1;
+    loadHistory(1);
+  }
+
+  function clearSearch() {
+    searchQuery = '';
+    searchInputEl.value = '';
+    btnClearSearchEl.style.display = 'none';
+    currentPage = 1;
+    loadHistory(1);
+  }
+
+  // --- Apply Custom Date Filter Function ---
+  function applyCustomDateFilter() {
+    const fromVal = startDateInputEl.value;
+    const toVal = endDateInputEl.value;
+
+    if (!fromVal && !toVal) {
+      showStatus('Please select at least a From or To date', true);
+      return;
     }
+
+    if (fromVal && toVal && fromVal > toVal) {
+      showStatus('From date cannot be after To date', true);
+      return;
+    }
+
+    startDate = fromVal;
+    endDate = toVal;
+    activePreset = 'custom';
+    updatePresetPillsUI();
+    currentPage = 1;
+    loadHistory(1);
+    showStatus('Custom date filter applied');
+  }
+
+  // --- Preset Pill Events ---
+  document.querySelectorAll('.preset-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const preset = pill.dataset.preset;
+
+      if (preset === 'custom') {
+        const isCurrentlyOpen = customDateBoxEl.style.display === 'block';
+        if (isCurrentlyOpen) {
+          customDateBoxEl.style.display = 'none';
+          if (!startDate && !endDate) {
+            activePreset = 'all';
+          }
+        } else {
+          customDateBoxEl.style.display = 'block';
+          activePreset = 'custom';
+          if (startDate) startDateInputEl.value = startDate;
+          if (endDate) endDateInputEl.value = endDate;
+          startDateInputEl.focus();
+        }
+        updatePresetPillsUI();
+        return;
+      }
+
+      activePreset = preset;
+      customDateBoxEl.style.display = 'none';
+      updatePresetPillsUI();
+
+      if (preset === 'all') {
+        startDate = '';
+        endDate = '';
+        startDateInputEl.value = '';
+        endDateInputEl.value = '';
+      } else {
+        const dates = calculatePresetDates(preset);
+        startDate = dates.start;
+        endDate = dates.end;
+        startDateInputEl.value = startDate;
+        endDateInputEl.value = endDate;
+      }
+
+      currentPage = 1;
+      loadHistory(1);
+    });
+  });
+
+  // --- Custom Date Range Apply / Reset Events ---
+  btnApplyDateFilterEl.addEventListener('click', applyCustomDateFilter);
+
+  // Allow pressing Enter in date inputs to trigger apply
+  [startDateInputEl, endDateInputEl].forEach(input => {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyCustomDateFilter();
+      }
+    });
+  });
+
+  btnResetDateFilterEl.addEventListener('click', () => {
+    resetToAllDates();
+  });
+
+  // --- Search Input Events (Debounced) ---
+  searchInputEl.addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    btnClearSearchEl.style.display = val ? 'block' : 'none';
+
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      searchQuery = val;
+      currentPage = 1;
+      loadHistory(1);
+    }, 300);
+  });
+
+  btnClearSearchEl.addEventListener('click', () => {
+    clearSearch();
+  });
+
+  // --- Mini Top Pagination Events ---
+  topPrevBtnEl.addEventListener('click', () => {
+    if (currentPage > 1) {
+      loadHistory(currentPage - 1, true);
+    }
+  });
+
+  topNextBtnEl.addEventListener('click', () => {
+    if (currentPage < totalPages) {
+      loadHistory(currentPage + 1, true);
+    }
+  });
+
+  // --- Print All Expenses for the Active Filter ---
+  async function printAllFilteredExpenses() {
+    if (!isAnyFilterActive()) {
+      showStatus('Printing is disabled for All Dates. Please select a date filter first.', true);
+      return;
+    }
+
+    const originalBtnHtml = btnPrintPageEl.innerHTML;
+    btnPrintPageEl.disabled = true;
+    btnPrintPageEl.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;">
+        <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+        <path d="M12 2a10 10 0 0 1 10 10"></path>
+      </svg>
+      <span>Loading all…</span>
+    `;
+
+    try {
+      showStatus('Fetching all expenses for printing…');
+
+      // Fetch all matching expenses (up to 5000) for the active filter
+      const params = new URLSearchParams();
+      params.set('limit', 5000);
+      params.set('page', 1);
+      if (startDate) params.set('start_date', startDate);
+      if (endDate) params.set('end_date', endDate);
+      if (searchQuery) params.set('q', searchQuery);
+
+      const data = await apiFetch(`/expenses/recent?${params.toString()}`);
+      const allItems = data.expenses || [];
+
+      if (allItems.length === 0) {
+        showStatus('No expenses found to print for this filter', true);
+        return;
+      }
+
+      // Calculate totals across ALL filtered expenses
+      let debitTotal = 0;
+      let creditTotal = 0;
+      allItems.forEach(x => {
+        const amt = Number(x.amount) || 0;
+        if (x.expense_type === 'credit') creditTotal += amt;
+        else debitTotal += amt;
+      });
+
+      const filterDesc = getActiveFilterDescription();
+      const generatedDate = formatDisplayDate(formatYMD(new Date()));
+
+      // Build the dedicated print document in #printSection
+      printSectionEl.innerHTML = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #23241F; line-height: 1.4; padding: 4px 0;">
+          <!-- Header -->
+          <div style="border-bottom: 2px solid #1F5C4F; padding-bottom: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-end;">
+            <div>
+              <div style="font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #8A8570; font-weight: 700;">Smart Expense Tracker</div>
+              <h1 style="font-size: 20px; margin: 3px 0 0 0; color: #1F5C4F; letter-spacing: 1px; font-weight: 800;">EXPENSE HISTORY REPORT</h1>
+            </div>
+            <div style="text-align: right; font-size: 10px; color: #8A8570;">
+              <div><strong>Printed:</strong> ${generatedDate} ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+              <div><strong>Total Records:</strong> ${allItems.length} expenses</div>
+            </div>
+          </div>
+
+          <!-- Metadata Banner -->
+          <div style="background: #F4F1EA; border: 1px solid #d9d0b4; padding: 8px 12px; border-radius: 4px; margin-bottom: 14px; display: flex; justify-content: space-between; font-size: 10.5px; flex-wrap: wrap; gap: 6px;">
+            <div><strong>Active Filter:</strong> ${escapeHtml(filterDesc)}</div>
+            <div><strong>Scope:</strong> All ${allItems.length} matching transactions (Complete Filter Export)</div>
+          </div>
+
+          <!-- Financial Breakdown Summary -->
+          <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+            <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Bank Debits</div>
+              <div style="font-size: 16px; font-weight: 700; color: #9c3b2e; margin-top: 2px;">${formatRupees(debitTotal)}</div>
+            </div>
+            <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Credit Swipes</div>
+              <div style="font-size: 16px; font-weight: 700; color: #1F5C4F; margin-top: 2px;">${formatRupees(creditTotal)}</div>
+            </div>
+            <div style="flex: 1; border: 1px solid #d9d0b4; padding: 8px 10px; border-radius: 4px; background: #FAF8F2;">
+              <div style="font-size: 9px; text-transform: uppercase; color: #8A8570; font-weight: 700; letter-spacing: 0.5px;">Total Net Outflow</div>
+              <div style="font-size: 16px; font-weight: 700; color: #23241F; margin-top: 2px;">${formatRupees(debitTotal + creditTotal)}</div>
+            </div>
+          </div>
+
+          <!-- Table of ALL Filtered Transactions -->
+          <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+            <thead>
+              <tr style="border-bottom: 1.5px solid #23241F; text-align: left; font-size: 9.5px; text-transform: uppercase; color: #8A8570; letter-spacing: 0.5px; background: #FAF8F2;">
+                <th style="padding: 6px 6px; width: 14%;">Date</th>
+                <th style="padding: 6px 6px; width: 42%;">Expense / Payee</th>
+                <th style="padding: 6px 6px; width: 22%;">Category</th>
+                <th style="padding: 6px 6px; width: 10%;">Type</th>
+                <th style="padding: 6px 6px; width: 12%; text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allItems.map((item, idx) => `
+                <tr style="border-bottom: 1px solid #E5E0D0; background: ${idx % 2 === 0 ? '#fff' : '#FAF8F2'};">
+                  <td style="padding: 5px 6px; font-size: 10px; white-space: nowrap;">${item.expense_date}</td>
+                  <td style="padding: 5px 6px; font-weight: 700;">${escapeHtml(item.expense || item.category || 'Expense')}</td>
+                  <td style="padding: 5px 6px; color: #555;">${escapeHtml(item.category || 'Uncategorized')}</td>
+                  <td style="padding: 5px 6px;">
+                    <span style="display: inline-block; padding: 1px 5px; border-radius: 2px; font-size: 9px; text-transform: uppercase; font-weight: 700; ${item.expense_type === 'credit' ? 'background: rgba(31,92,79,0.12); color: #1F5C4F;' : 'background: rgba(156,59,46,0.12); color: #9c3b2e;'}">${item.expense_type}</span>
+                  </td>
+                  <td style="padding: 5px 6px; text-align: right; font-weight: 700;">${formatRupees(item.amount)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="border-top: 2px solid #23241F; font-weight: 700; background: #F4F1EA;">
+                <td colspan="4" style="padding: 7px 6px; text-transform: uppercase; font-size: 10px;">Total Outflow (${allItems.length} transactions)</td>
+                <td style="padding: 7px 6px; text-align: right; font-size: 12px; color: #1F5C4F;">${formatRupees(debitTotal + creditTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <!-- Footer -->
+          <div style="margin-top: 18px; border-top: 1px dashed #d9d0b4; padding-top: 6px; font-size: 8.5px; color: #8A8570; display: flex; justify-content: space-between;">
+            <div>SmartExpenseTracker · Complete Filter Report (${allItems.length} expenses)</div>
+            <div>End of Report</div>
+          </div>
+        </div>
+      `;
+
+      // Trigger browser native print (which prompts Save as PDF with vector text)
+      window.print();
+
+    } catch (err) {
+      showStatus('Could not prepare print: ' + err.message, true);
+    } finally {
+      btnPrintPageEl.innerHTML = originalBtnHtml;
+      updatePrintButtonState();
+      // Clean up print container
+      setTimeout(() => {
+        printSectionEl.innerHTML = '';
+      }, 1000);
+    }
+  }
+
+  btnPrintPageEl.addEventListener('click', printAllFilteredExpenses);
+
+  // CSV Export Logic
+  const btnExportCsvEl = document.getElementById('btnExportCsv');
+
+  function csvCell(val) {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  }
+
+  async function exportAllFilteredExpensesToCsv() {
+    const originalHtml = btnExportCsvEl.innerHTML;
+    btnExportCsvEl.disabled = true;
+    btnExportCsvEl.innerHTML = `<span>Exporting…</span>`;
+
+    try {
+      showStatus('Preparing CSV download…');
+      const params = new URLSearchParams();
+      params.set('limit', 5000);
+      params.set('page', 1);
+      if (startDate) params.set('start_date', startDate);
+      if (endDate) params.set('end_date', endDate);
+      if (searchQuery) params.set('q', searchQuery);
+
+      const data = await apiFetch(`/expenses/recent?${params.toString()}`);
+      const items = data.expenses || [];
+
+      if (items.length === 0) {
+        showStatus('No expenses found to export', true);
+        return;
+      }
+
+      const headers = ['Date', 'Expense/Payee', 'Category', 'Category Type', 'Type', 'Amount (INR)', 'Source', 'Status', 'Created At'];
+      const rows = [headers.join(',')];
+
+      items.forEach(x => {
+        const row = [
+          csvCell(x.expense_date),
+          csvCell(x.expense || ''),
+          csvCell(x.category || 'Uncategorized'),
+          csvCell(x.category_type || ''),
+          csvCell(x.expense_type || 'debit'),
+          csvCell(x.amount || 0),
+          csvCell(x.source || 'manual'),
+          csvCell(x.status || 'approved'),
+          csvCell(x.created_at || '')
+        ];
+        rows.push(row.join(','));
+      });
+
+      const csvContent = '\uFEFF' + rows.join('\r\n'); // Add UTF-8 BOM for Excel compatibility
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateSuffix = startDate ? `${startDate}_to_${endDate || 'latest'}` : 'all';
+      a.download = `ledger_expenses_${dateSuffix}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showStatus(`Exported ${items.length} expenses to CSV!`);
+    } catch (err) {
+      showStatus('CSV export failed: ' + err.message, true);
+    } finally {
+      btnExportCsvEl.innerHTML = originalHtml;
+      btnExportCsvEl.disabled = false;
+    }
+  }
+
+  if (btnExportCsvEl) {
+    btnExportCsvEl.addEventListener('click', exportAllFilteredExpensesToCsv);
   }
 
   function escapeHtml(str) {
@@ -240,7 +1025,9 @@
     });
   }
 
-  loadCategories().then(loadHistory);
+  // Initialize
+  parseUrlParams();
+  loadCategories().then(() => loadHistory(currentPage));
 </script>
 </body>
 </html>

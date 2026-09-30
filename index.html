@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#B8B2A0">
 <title>Ledger</title>
+<link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231F5C4F'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%23EDE7D3' font-family='monospace'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Text:wght@600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -41,6 +42,35 @@
         <div class="eyebrow">EXPENSE LEDGER</div>
         <h1>New Entry</h1>
       </header>
+
+      <!-- AI Quick Text & SMS Paste Panel -->
+      <div class="ai-quick-panel" id="aiQuickPanel">
+        <div class="ai-quick-header" id="aiQuickHeader">
+          <div class="ai-quick-title">
+            <span>⚡ AI Quick Paste</span>
+            <span class="ai-quick-badge">Gemini Flash</span>
+          </div>
+          <span class="ai-quick-toggle-text" id="aiQuickToggleText">Click to expand ▾</span>
+        </div>
+        <div class="ai-quick-body" id="aiQuickBody" style="display:none;">
+          <textarea id="aiQuickInput" class="ai-quick-textarea" placeholder="Paste bank SMS, UPI alert, or type freely (e.g. 'Paid Rs 450 to Swiggy for lunch')..."></textarea>
+          <div class="ai-quick-actions">
+            <button type="button" class="btn-ai-parse-fill" id="btnAiFill">⚡ Parse & Fill</button>
+            <button type="button" class="btn-ai-parse-stamp" id="btnAiStamp">⚡ Parse & Stamp</button>
+            <div class="ai-quick-status" id="aiQuickStatus"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Duplicate Transaction Warning Banner -->
+      <div class="duplicate-alert-banner" id="duplicateAlert" style="display:none;">
+        <div style="font-weight:700;">⚠️ Potential Duplicate Detected</div>
+        <div id="duplicateAlertMsg">An identical transaction was logged today.</div>
+        <div class="duplicate-alert-actions">
+          <button type="button" class="btn-confirm-dup" id="btnConfirmDup">Stamp Anyway</button>
+          <button type="button" class="btn-cancel-dup" id="btnCancelDup">Cancel</button>
+        </div>
+      </div>
 
       <div class="field">
         <label for="amount">Amount</label>
@@ -194,38 +224,169 @@
   const expenseEl = document.getElementById('expense');
   const dateEl = document.getElementById('date');
 
-  submitBtn.addEventListener('click', async () => {
-    statusEl.textContent = '';
-    statusEl.className = 'status';
+  // AI Quick Paste Panel Logic
+  const aiQuickPanelEl = document.getElementById('aiQuickPanel');
+  const aiQuickHeaderEl = document.getElementById('aiQuickHeader');
+  const aiQuickBodyEl = document.getElementById('aiQuickBody');
+  const aiQuickToggleTextEl = document.getElementById('aiQuickToggleText');
+  const aiQuickInputEl = document.getElementById('aiQuickInput');
+  const btnAiFillEl = document.getElementById('btnAiFill');
+  const btnAiStampEl = document.getElementById('btnAiStamp');
+  const aiQuickStatusEl = document.getElementById('aiQuickStatus');
 
-    const amount = parseFloat(amountEl.value);
-    if (!amount || amount <= 0) {
-      statusEl.textContent = 'Enter an amount first';
-      statusEl.className = 'status error';
+  let isAiPanelOpen = false;
+  function toggleAiPanel(forceOpen = null) {
+    isAiPanelOpen = forceOpen !== null ? forceOpen : !isAiPanelOpen;
+    aiQuickBodyEl.style.display = isAiPanelOpen ? 'block' : 'none';
+    aiQuickToggleTextEl.textContent = isAiPanelOpen ? 'Click to collapse ▴' : 'Click to expand ▾';
+    if (isAiPanelOpen) {
+      setTimeout(() => aiQuickInputEl.focus(), 50);
+    }
+  }
+  aiQuickHeaderEl.addEventListener('click', () => toggleAiPanel());
+
+  // Auto-expand if user pastes into textarea
+  aiQuickInputEl.addEventListener('paste', () => {
+    if (!isAiPanelOpen) toggleAiPanel(true);
+  });
+
+  async function callAiParser(text) {
+    return await apiFetch('/parse-expense', {
+      method: 'POST',
+      body: JSON.stringify({
+        text: text,
+        source: 'ai_parsed'
+      })
+    });
+  }
+
+  function applyParsedToForm(parsed) {
+    if (!parsed) return;
+    if (parsed.amount) {
+      amountEl.value = parsed.amount;
+    }
+    if (parsed.expense) {
+      expenseEl.value = parsed.expense;
+    }
+    if (parsed.category) {
+      const matchChip = Array.from(document.querySelectorAll('#chips .chip')).find(
+        c => c.textContent.trim().toLowerCase() === parsed.category.toLowerCase()
+      );
+      if (matchChip) {
+        matchChip.click();
+      } else {
+        selectedCategory = parsed.category;
+      }
+    }
+    if (parsed.expense_type) {
+      const typeChip = document.querySelector(`#typeChips .chip[data-type="${parsed.expense_type}"]`);
+      if (typeChip) typeChip.click();
+    }
+  }
+
+  btnAiFillEl.addEventListener('click', async () => {
+    const text = aiQuickInputEl.value.trim();
+    if (!text) {
+      aiQuickStatusEl.textContent = 'Paste text first';
       return;
     }
-    if (!selectedCategory) {
-      statusEl.textContent = 'Pick a category';
-      statusEl.className = 'status error';
+    btnAiFillEl.disabled = true;
+    btnAiStampEl.disabled = true;
+    aiQuickStatusEl.textContent = 'Parsing with Gemini…';
+
+    try {
+      const res = await callAiParser(text);
+      if (res.status === 'ok' && res.parsed && res.parsed.amount) {
+        applyParsedToForm(res.parsed);
+        aiQuickStatusEl.textContent = `Parsed: ₹${res.parsed.amount} (${res.parsed.category || ''})`;
+        toggleAiPanel(false);
+        amountEl.focus();
+      } else {
+        aiQuickStatusEl.textContent = res.error || 'Could not detect an expense amount';
+      }
+    } catch (err) {
+      aiQuickStatusEl.textContent = err.message || 'AI parsing failed';
+    } finally {
+      btnAiFillEl.disabled = false;
+      btnAiStampEl.disabled = false;
+    }
+  });
+
+  btnAiStampEl.addEventListener('click', async () => {
+    const text = aiQuickInputEl.value.trim();
+    if (!text) {
+      aiQuickStatusEl.textContent = 'Paste text first';
       return;
     }
+    btnAiFillEl.disabled = true;
+    btnAiStampEl.disabled = true;
+    aiQuickStatusEl.textContent = 'Stamping with Gemini…';
 
+    try {
+      const res = await callAiParser(text);
+      if (res.status === 'ok' && res.parsed && res.parsed.amount) {
+        const amt = parseFloat(res.parsed.amount);
+        const cat = res.parsed.category || 'Others';
+        const expDesc = res.parsed.expense || text;
+        addTapeRow(amt, cat, expDesc);
+        aiQuickInputEl.value = '';
+        aiQuickStatusEl.textContent = `Stamped ₹${amt}!`;
+        loadSummary();
+        toggleAiPanel(false);
+      } else {
+        aiQuickStatusEl.textContent = res.error || 'Could not parse amount';
+      }
+    } catch (err) {
+      aiQuickStatusEl.textContent = err.message || 'AI stamp failed';
+    } finally {
+      btnAiFillEl.disabled = false;
+      btnAiStampEl.disabled = false;
+    }
+  });
+
+  // Duplicate Check & Submit
+  const duplicateAlertEl = document.getElementById('duplicateAlert');
+  const duplicateAlertMsgEl = document.getElementById('duplicateAlertMsg');
+  const btnConfirmDupEl = document.getElementById('btnConfirmDup');
+  const btnCancelDupEl = document.getElementById('btnCancelDup');
+  let pendingSubmission = null;
+
+  btnCancelDupEl.addEventListener('click', () => {
+    duplicateAlertEl.style.display = 'none';
+    pendingSubmission = null;
+    submitBtn.disabled = false;
+  });
+
+  btnConfirmDupEl.addEventListener('click', async () => {
+    duplicateAlertEl.style.display = 'none';
+    if (pendingSubmission) {
+      await executeAddExpense(pendingSubmission);
+      pendingSubmission = null;
+    }
+  });
+
+  async function checkDuplicate(amount, expDate, expenseName) {
+    try {
+      const q = `/expenses/check-duplicate?amount=${amount}&expense_date=${expDate}&expense=${encodeURIComponent(expenseName || '')}`;
+      const data = await apiFetch(q);
+      return data && data.has_duplicate ? data.matches : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function executeAddExpense(payload) {
     submitBtn.disabled = true;
     statusEl.textContent = 'Stamping…';
+    statusEl.className = 'status';
 
     try {
       await apiFetch('/add-expense', {
         method: 'POST',
-        body: JSON.stringify({
-          amount: amount,
-          category: selectedCategory,
-          expense: expenseEl.value || null,
-          expense_type: selectedType,
-          expense_date: dateEl.value
-        })
+        body: JSON.stringify(payload)
       });
 
-      addTapeRow(amount, selectedCategory, expenseEl.value);
+      addTapeRow(payload.amount, payload.category, payload.expense);
 
       submitBtn.classList.add('stamped');
       statusEl.textContent = 'Added';
@@ -239,12 +400,62 @@
       selectedType = 'debit';
       amountEl.focus();
 
-      loadSummary(); // refresh totals to reflect the new entry
+      loadSummary();
     } catch (e) {
       statusEl.textContent = e.message || 'Something went wrong';
       statusEl.className = 'status error';
     } finally {
       submitBtn.disabled = false;
+    }
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+
+    const amount = parseFloat(amountEl.value);
+    if (!amount || amount <= 0) {
+      statusEl.textContent = 'Enter an amount first';
+      statusEl.className = 'status error';
+      amountEl.focus();
+      return;
+    }
+    if (!selectedCategory) {
+      statusEl.textContent = 'Pick a category';
+      statusEl.className = 'status error';
+      return;
+    }
+
+    const payload = {
+      amount: amount,
+      category: selectedCategory,
+      expense: expenseEl.value || null,
+      expense_type: selectedType,
+      expense_date: dateEl.value
+    };
+
+    // Check potential duplicate on same date
+    const dupMatches = await checkDuplicate(amount, dateEl.value, expenseEl.value);
+    if (dupMatches && dupMatches.length > 0) {
+      const dup = dupMatches[0];
+      duplicateAlertMsgEl.textContent = `An expense of ₹${dup.amount} (${dup.expense || dup.category}) was already logged for ${dateEl.value}.`;
+      duplicateAlertEl.style.display = 'block';
+      pendingSubmission = payload;
+      return;
+    }
+
+    await executeAddExpense(payload);
+  });
+
+  // Global Keyboard Shortcuts (Cmd/Ctrl + Enter to Stamp)
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitBtn.click();
+    }
+    if (e.key === 'Escape') {
+      duplicateAlertEl.style.display = 'none';
+      pendingSubmission = null;
     }
   });
 </script>
